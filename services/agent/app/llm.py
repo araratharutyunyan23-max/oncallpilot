@@ -17,7 +17,7 @@ from typing import Any
 import anthropic
 from anthropic import AsyncAnthropic
 
-from .config import Settings
+from .config import Settings, get_settings
 from .cost import Usage, cost_usd
 from .resilience import RETRYABLE, backoff_sleep
 
@@ -29,8 +29,10 @@ _client: AsyncAnthropic | None = None
 def get_client() -> AsyncAnthropic:
     global _client
     if _client is None:
-        # zero-arg client reads ANTHROPIC_API_KEY (or an `ant` profile)
-        _client = AsyncAnthropic()
+        # take the key from our own config (single source of truth: .env or OS env),
+        # not the SDK's implicit os.environ lookup — the latter is empty under local
+        # dev where the key lives only in the pydantic-loaded .env.
+        _client = AsyncAnthropic(api_key=get_settings().anthropic_api_key)
     return _client
 
 

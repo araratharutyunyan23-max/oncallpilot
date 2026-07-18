@@ -6,8 +6,18 @@ code that consumes them exists — see DECISIONS.md "Explicitly out of scope".
 """
 
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _find_env_file() -> str:
+    """Resolve the repo-root .env regardless of CWD (local dev runs from
+    services/agent). In a container no file is found and OS env vars are used."""
+    for parent in Path(__file__).resolve().parents:
+        if (parent / ".env").exists() or (parent / ".git").exists():
+            return str(parent / ".env")
+    return ".env"
 
 DEFAULT_SYSTEM_PROMPT = (
     "You are OncallPilot, an assistant for SRE / on-call engineers. "
@@ -19,7 +29,7 @@ DEFAULT_SYSTEM_PROMPT = (
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env", env_file_encoding="utf-8", extra="ignore"
+        env_file=_find_env_file(), env_file_encoding="utf-8", extra="ignore"
     )
 
     # --- Claude (the single required secret in Phase 0) ---
