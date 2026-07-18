@@ -1,6 +1,23 @@
 # Run from the repo root:  docker compose -f ops/docker-compose.yml up --build
 # (the Makefile wraps this). Phase 0 has no database.
 services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: oncallpilot
+      POSTGRES_PASSWORD: oncallpilot
+      POSTGRES_DB: oncallpilot
+    ports:
+      - "55432:5432"   # host 55432 (5432/5433 are taken by other local projects)
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ../services/agent/app/retrieval/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U oncallpilot -d oncallpilot"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   agent:
     build:
       context: ../services/agent
@@ -33,3 +50,6 @@ services:
     depends_on:
       agent:
         condition: service_healthy
+
+volumes:
+  pgdata:

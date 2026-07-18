@@ -64,6 +64,23 @@ No product auth, billing, or multi-tenancy; no fine-tuning; the corpus stays nar
 
 ---
 
+## [P1] Measured: hybrid + rerank does not lift on a 31-chunk corpus
+- **Context:** The P1 retrieval spine (bge-large-en-v1.5 + Postgres FTS + RRF + bge-reranker-v2-m3) is built. The corpus is 6 real SRE docs → 31 chunks. The offline eval (`app.retrieval.evaluate`, 10 gold cases, 4 hard-negative) reports recall@{1,3,6} and MRR for dense-only / hybrid / hybrid+rerank.
+- **Finding (measured 2026-07-19):**
+
+  | mode | R@1 | R@3 | R@6 | MRR |
+  |---|---|---|---|---|
+  | dense_only | 0.70 | 1.00 | 1.00 | 0.833 |
+  | hybrid | 0.70 | 1.00 | 1.00 | 0.833 |
+  | hybrid_rerank | 0.50 | 0.90 | 1.00 | 0.725 |
+
+  Rerank-lift is **negative** (R@1 −0.20, MRR −0.108).
+- **Decision:** Keep rerank behind the `use_rerank` flag and **do not claim it as a win** until it earns one on a realistic corpus. The eval is committed as the honest baseline. No faked lift.
+- **Why:** 31 chunks over 6 heavily cross-linked docs leaves no headroom — top-6 almost always contains a gold chunk regardless of method, so a general multilingual cross-encoder mostly reshuffles near-duplicates. Exactly the risk flagged in *"Narrow corpus vs demonstrate rerank lift"*.
+- **Path to a real lift (next):** modestly expand the corpus with more real per-service runbooks to create distractor headroom, and add chunk-level gold so the eval measures whether rerank surfaces the *right step*, not just the right doc. Re-baseline; if rerank still doesn't help at a realistic size, default it **off** with the evidence recorded here rather than shipping a reranker that hurts.
+
+---
+
 ## OWASP LLM Top-10 mapping (skeleton — filled in as controls land)
 
 | OWASP | Control | Phase |

@@ -1,0 +1,48 @@
+# Golden retrieval set (human-authored). `gold` lists acceptable source slugs;
+# a case "hits" if any gold slug appears in the top-k reranked results.
+# `hard_negative: true` marks queries with lexically-similar distractor chunks
+# in other docs — where rerank should measurably reorder.
+cases:
+  - id: redis-oom-writes
+    query: "Redis is rejecting writes with OOM command not allowed, what do I do?"
+    gold: ["runbooks/redis-oom"]
+
+  - id: api-5xx-after-deploy
+    query: "API 5xx errors spiked right after a deploy, how do I mitigate?"
+    gold: ["runbooks/api-5xx"]
+
+  - id: replica-lag
+    query: "a read replica is two minutes behind the primary and reads are stale"
+    gold: ["runbooks/postgres-replication-lag"]
+
+  - id: ticket-priority
+    query: "what priority should the ticket for a P1 alert be?"
+    gold: ["adrs/0001-alert-severity-levels"]
+
+  - id: checkout-may14
+    query: "why did checkout get slow on May 14 and what was the root cause?"
+    gold: ["postmortems/2026-05-checkout-latency"]
+
+  - id: which-runbook-redis-alert
+    query: "which runbook does the RedisMemoryHigh alert link to?"
+    gold: ["alerts/alert-catalog", "runbooks/redis-oom"]
+
+  - id: cache-keys-no-ttl
+    query: "cache keys written without an expiry are filling up memory"
+    gold: ["runbooks/redis-oom"]
+    hard_negative: true  # the postmortem also discusses missing TTLs
+
+  - id: promote-replica
+    query: "should I promote the replica to fix replication lag?"
+    gold: ["runbooks/postgres-replication-lag"]
+    hard_negative: true  # promotion is mentioned but as a do-not
+
+  - id: noeviction-policy
+    query: "maxmemory-policy is set to noeviction and that seems wrong"
+    gold: ["runbooks/redis-oom"]
+    hard_negative: true  # postmortem mentions noeviction drift too
+
+  - id: latency-from-database
+    query: "checkout latency caused by database and cache saturation"
+    gold: ["postmortems/2026-05-checkout-latency", "runbooks/api-5xx"]
+    hard_negative: true  # spans postmortem + api runbook, distractor terms everywhere

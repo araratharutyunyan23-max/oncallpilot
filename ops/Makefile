@@ -38,6 +38,15 @@ agent-dev:
 web:
 	cd apps/web && npm run dev
 
+db-up:
+	$(COMPOSE) up -d postgres
+
+ingest:
+	cd services/agent && uv run python -m app.retrieval.ingest
+
+eval-retrieval:
+	cd services/agent && uv run python -m app.retrieval.evaluate
+
 test:
 	cd services/agent && uv run pytest -q
 

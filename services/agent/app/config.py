@@ -41,6 +41,18 @@ class Settings(BaseSettings):
     daily_spend_cap_usd: float = 5.0
     max_request_usd: float = 0.50
 
+    # --- Retrieval (Phase 1) ---
+    database_url: str = "postgresql://oncallpilot:oncallpilot@localhost:55432/oncallpilot"
+    embed_model: str = "BAAI/bge-large-en-v1.5"
+    embed_dim: int = 1024
+    chunk_tokens: int = 512
+    chunk_overlap: int = 64
+    rerank_model: str = "BAAI/bge-reranker-v2-m3"
+    rerank_topn: int = 6
+    retrieve_fetch_k: int = 30  # candidates per arm before fusion
+    rrf_k: int = 60
+    hnsw_ef_search: int = 80
+
     @property
     def cors_origins(self) -> list[str]:
         return [o.strip() for o in self.cors_allow_origins.split(",") if o.strip()]
