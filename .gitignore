@@ -1,0 +1,25 @@
+# python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# node / next
+node_modules/
+.next/
+next-env.d.ts.tmp
+
+# env / secrets (examples are committed, real ones are not)
+.env
+.env.local
+*.local
+
+# models / data caches (Phase 1+)
+services/agent/models/
+docs/corpus/**/.embeddings/
+
+# os / editor
+.DS_Store
+*.swp

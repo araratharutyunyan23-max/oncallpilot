@@ -1,0 +1,30 @@
+name: deploy
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+# Requires repo secret FLY_API_TOKEN and pre-created Fly apps:
+#   flyctl apps create oncallpilot-agent && flyctl apps create oncallpilot-web
+# and the agent secret:
+#   flyctl secrets set ANTHROPIC_API_KEY=... -a oncallpilot-agent
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Deploy agent
+        if: ${{ env.FLY_API_TOKEN != '' }}
+        run: flyctl deploy --config ops/fly/agent.fly.toml --dockerfile services/agent/Dockerfile --remote-only
+      - name: Deploy web
+        if: ${{ env.FLY_API_TOKEN != '' }}
+        run: >
+          flyctl deploy --config ops/fly/web.fly.toml --dockerfile apps/web/Dockerfile --remote-only
+          --build-arg NEXT_PUBLIC_AGENT_BASE_URL=https://oncallpilot-agent.fly.dev
+      - name: Skipped notice
+        if: ${{ env.FLY_API_TOKEN == '' }}
+        run: echo "FLY_API_TOKEN not set — skipping deploy (scaffold only)."

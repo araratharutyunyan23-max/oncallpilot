@@ -1,0 +1,35 @@
+# Run from the repo root:  docker compose -f ops/docker-compose.yml up --build
+# (the Makefile wraps this). Phase 0 has no database.
+services:
+  agent:
+    build:
+      context: ../services/agent
+    env_file:
+      - ../.env
+    environment:
+      CORS_ALLOW_ORIGINS: "http://localhost:3000"
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test:
+        - "CMD"
+        - "python"
+        - "-c"
+        - "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz').getcode()==200 else 1)"
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  web:
+    build:
+      context: ../apps/web
+      args:
+        NEXT_PUBLIC_AGENT_BASE_URL: "http://localhost:8000"
+    environment:
+      NEXT_PUBLIC_AGENT_BASE_URL: "http://localhost:8000"
+    ports:
+      - "3000:3000"
+    depends_on:
+      agent:
+        condition: service_healthy
