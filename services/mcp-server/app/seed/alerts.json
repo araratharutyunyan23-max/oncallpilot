@@ -1,0 +1,7 @@
+[
+  {"alert_id": "alr-1001", "service": "api", "severity": "P1", "state": "firing", "summary": "API 5xx error rate above 2%", "started_at": "2026-07-19T09:05:00Z", "runbook_url": "runbooks/api-5xx.md", "labels": ["HighApiErrorRate"]},
+  {"alert_id": "alr-1002", "service": "cache-redis", "severity": "P2", "state": "firing", "summary": "Redis above 90% of maxmemory", "started_at": "2026-07-19T09:01:00Z", "runbook_url": "runbooks/redis-oom.md", "labels": ["RedisMemoryHigh"]},
+  {"alert_id": "alr-1003", "service": "checkout", "severity": "P2", "state": "firing", "summary": "Checkout p95 latency above 1s", "started_at": "2026-07-19T09:06:00Z", "runbook_url": "runbooks/api-5xx.md", "labels": ["CheckoutLatencyHigh"]},
+  {"alert_id": "alr-0990", "service": "postgres-replica", "severity": "P2", "state": "resolved", "summary": "Read replica lag above 60s", "started_at": "2026-07-19T07:40:00Z", "runbook_url": "runbooks/postgres-replication-lag.md", "labels": ["PostgresReplicationLag"]},
+  {"alert_id": "alr-0985", "service": "events-consumer", "severity": "P2", "state": "resolved", "summary": "Kafka consumer group lag high", "started_at": "2026-07-19T06:15:00Z", "runbook_url": "runbooks/kafka-consumer-lag.md", "labels": ["KafkaConsumerLag"]}
+]

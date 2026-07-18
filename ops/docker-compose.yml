@@ -51,5 +51,17 @@ services:
       agent:
         condition: service_healthy
 
+  mcp-server:
+    build:
+      context: ../services/mcp-server
+    ports:
+      - "9000:9000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket,sys; s=socket.create_connection(('127.0.0.1',9000),2); s.close()"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
 volumes:
   pgdata:
