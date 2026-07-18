@@ -42,10 +42,12 @@ def hybrid_search(
     query: str,
     *,
     use_sparse: bool = True,
-    use_rerank: bool = True,
+    use_rerank: bool | None = None,  # None -> settings.rerank_enabled (measured off)
     conn: psycopg.Connection | None = None,
 ) -> tuple[list[RetrievedChunk], RetrievalTrace]:
     s = get_settings()
+    if use_rerank is None:
+        use_rerank = s.rerank_enabled
     own = conn is None
     conn = conn or connect()
     lat: dict[str, float] = {}

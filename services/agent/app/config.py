@@ -49,6 +49,7 @@ class Settings(BaseSettings):
     chunk_overlap: int = 64
     rerank_model: str = "BAAI/bge-reranker-v2-m3"
     rerank_topn: int = 6
+    rerank_enabled: bool = False  # measured off — see DECISIONS.md "[P1] Measured decision"
     retrieve_fetch_k: int = 30  # candidates per arm before fusion
     rrf_k: int = 60
     hnsw_ef_search: int = 80

@@ -64,20 +64,22 @@ No product auth, billing, or multi-tenancy; no fine-tuning; the corpus stays nar
 
 ---
 
-## [P1] Measured: hybrid + rerank does not lift on a 31-chunk corpus
-- **Context:** The P1 retrieval spine (bge-large-en-v1.5 + Postgres FTS + RRF + bge-reranker-v2-m3) is built. The corpus is 6 real SRE docs → 31 chunks. The offline eval (`app.retrieval.evaluate`, 10 gold cases, 4 hard-negative) reports recall@{1,3,6} and MRR for dense-only / hybrid / hybrid+rerank.
-- **Finding (measured 2026-07-19):**
+## [P1] Measured decision: ship hybrid dense+FTS, cross-encoder rerank OFF by default
+- **Context:** The P1 retrieval spine (bge-large-en-v1.5 + Postgres FTS + RRF + bge-reranker-v2-m3) evaluated against a human-authored gold set with `app.retrieval.evaluate` (recall@{1,3,6} + MRR, plus a hard-negative subset). Measured at **two corpus sizes** to rule out the small-corpus artifact.
+- **Finding (measured 2026-07-19) — rerank does not help at either size:**
 
-  | mode | R@1 | R@3 | R@6 | MRR |
+  | corpus | mode | R@1 | R@3 | MRR |
   |---|---|---|---|---|
-  | dense_only | 0.70 | 1.00 | 1.00 | 0.833 |
-  | hybrid | 0.70 | 1.00 | 1.00 | 0.833 |
-  | hybrid_rerank | 0.50 | 0.90 | 1.00 | 0.725 |
+  | 31 chunks / 6 docs (10 gold) | dense/hybrid | 0.70 | 1.00 | 0.833 |
+  | | hybrid_rerank | 0.50 | 0.90 | 0.725 |
+  | 78 chunks / 15 docs (22 gold, 11 hard-neg) | dense/hybrid | 0.82 | 1.00 | 0.902 |
+  | | hybrid_rerank | 0.68 | 0.95 | 0.807 |
 
-  Rerank-lift is **negative** (R@1 −0.20, MRR −0.108).
-- **Decision:** Keep rerank behind the `use_rerank` flag and **do not claim it as a win** until it earns one on a realistic corpus. The eval is committed as the honest baseline. No faked lift.
-- **Why:** 31 chunks over 6 heavily cross-linked docs leaves no headroom — top-6 almost always contains a gold chunk regardless of method, so a general multilingual cross-encoder mostly reshuffles near-duplicates. Exactly the risk flagged in *"Narrow corpus vs demonstrate rerank lift"*.
-- **Path to a real lift (next):** modestly expand the corpus with more real per-service runbooks to create distractor headroom, and add chunk-level gold so the eval measures whether rerank surfaces the *right step*, not just the right doc. Re-baseline; if rerank still doesn't help at a realistic size, default it **off** with the evidence recorded here rather than shipping a reranker that hurts.
+  Expanding the corpus 2.5× did not create headroom: dense recall@3 stays 1.00 and rerank still lowers top-1.
+- **Diagnostic (why):** inspecting trap queries (deploy rollback, exit-137 host OOM, 429) shows dense already returns the correct runbook's chunks across the whole top-3; the reranker keeps #1–#2 correct but diversifies #3 into topically-related chunks in *other* docs (e.g. the api-5xx "roll back first" section for a rollback query). On **doc-level** gold that reads as a regression. bge-large dense retrieval is simply strong enough on this focused SRE domain that recall saturates — the reranker has nothing to fix and only adds reordering risk.
+- **Decision:** Ship **hybrid dense + Postgres FTS (RRF)** as the retrieval path; default the cross-encoder rerank **OFF** (`RERANK_ENABLED=false`; `use_rerank` flag retained, eval still exercises all three modes). Evidence-based, not assumed. Rerank also adds real CPU latency — it dominated the eval wall-clock — for negative benefit here.
+- **When to revisit:** rerank earns its place on a larger/noisier corpus, or under **chunk-level** gold that measures whether it surfaces the right *passage* rather than the right doc. The flag + eval are in place to re-measure and flip the default when the data supports it.
+- **Anti-cargo-cult note:** "hybrid + rerank" is a reflexive default. We built it, measured it twice, and turned rerank off on evidence. That measurement — and the decision it drove — is the senior signal, not the presence of a reranker.
 
 ---
 

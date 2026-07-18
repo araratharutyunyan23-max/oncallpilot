@@ -46,3 +46,59 @@ cases:
     query: "checkout latency caused by database and cache saturation"
     gold: ["postmortems/2026-05-checkout-latency", "runbooks/api-5xx"]
     hard_negative: true  # spans postmortem + api runbook, distractor terms everywhere
+
+  # --- expanded corpus (15 docs) ---
+  - id: exit-137-kernel-kill
+    query: "a process was killed with exit code 137 by the kernel out of memory"
+    gold: ["runbooks/oom-killer"]
+    hard_negative: true  # "OOM" collides with the Redis maxmemory runbook
+
+  - id: redis-maxmemory-oom
+    query: "Redis maxmemory reached and it is rejecting writes with OOM"
+    gold: ["runbooks/redis-oom"]
+    hard_negative: true  # "OOM" collides with the host OOM-killer runbook
+
+  - id: kafka-lag-behind
+    query: "kafka consumer group is falling behind the tail of the topic"
+    gold: ["runbooks/kafka-consumer-lag"]
+
+  - id: notifications-late
+    query: "notifications are arriving hours late to users"
+    gold: ["postmortems/2026-06-kafka-backlog", "runbooks/kafka-consumer-lag"]
+
+  - id: disk-95-full
+    query: "the disk is 95 percent full, how do I find what filled it"
+    gold: ["runbooks/disk-full"]
+
+  - id: pgwal-growing
+    query: "pg_wal keeps growing and is filling the disk"
+    gold: ["runbooks/disk-full", "runbooks/postgres-replication-lag"]
+    hard_negative: true  # WAL/replication-slot terms live in the replication runbook too
+
+  - id: tls-cert-expired
+    query: "TLS certificate expired and clients see certificate errors"
+    gold: ["runbooks/cert-expiry"]
+
+  - id: lb-502
+    query: "load balancer is returning 502 bad gateway to clients"
+    gold: ["runbooks/lb-502-bad-gateway"]
+    hard_negative: true  # 5xx/gateway terms overlap the api-5xx runbook
+
+  - id: how-to-rollback
+    query: "how do I roll back a bad deploy that broke production"
+    gold: ["runbooks/deploy-rollback"]
+    hard_negative: true  # api-5xx runbook also mentions rolling back
+
+  - id: clients-429
+    query: "clients are getting 429 too many requests"
+    gold: ["runbooks/rate-limit-exhaustion"]
+    hard_negative: true  # error-rate terms overlap api-5xx
+
+  - id: dns-name-not-resolving
+    query: "name or service not known, DNS resolution is failing cluster wide"
+    gold: ["runbooks/dns-resolution-failure"]
+
+  - id: coredns-oom
+    query: "CoreDNS pods are OOMing under high query load"
+    gold: ["runbooks/dns-resolution-failure"]
+    hard_negative: true  # "OOM" collides with the host OOM-killer runbook
