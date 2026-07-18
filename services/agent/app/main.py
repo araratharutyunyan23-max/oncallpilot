@@ -18,6 +18,7 @@ from sse_starlette.sse import EventSourceResponse
 from .config import get_settings
 from .edge_guard import enforce_edge, get_guard
 from .llm import stream_chat
+from .rag import stream_rag_answer
 
 _settings = get_settings()
 logging.basicConfig(level=_settings.log_level)
@@ -72,6 +73,37 @@ async def chat(req: ChatRequest, request: Request, _: None = Depends(enforce_edg
                     yield {"event": "done", "data": "{}"}
         except Exception:  # noqa: BLE001 — surface as SSE error, never 500 mid-stream
             log.exception("chat stream crashed")
+            yield {"event": "error", "data": json.dumps({"message": "internal error"})}
+
+    return EventSourceResponse(event_gen())
+
+
+@app.post("/rag")
+async def rag(req: ChatRequest, request: Request, _: None = Depends(enforce_edge)):
+    """RAG: retrieve from the corpus, answer grounded in it with native citations."""
+    s = get_settings()
+    if not s.anthropic_api_key:
+        return JSONResponse({"error": "ANTHROPIC_API_KEY not configured"}, status_code=503)
+    guard = get_guard()
+
+    async def event_gen():
+        try:
+            async for kind, payload in stream_rag_answer(req.query, s):
+                if kind == "token":
+                    yield {"event": "token", "data": json.dumps({"text": payload})}
+                elif kind == "sources":
+                    yield {"event": "sources", "data": json.dumps(payload)}
+                elif kind == "citations":
+                    yield {"event": "citations", "data": json.dumps(payload)}
+                elif kind == "usage":
+                    guard.add_spend(float(payload.get("cost_usd", 0.0)))  # type: ignore[union-attr]
+                    yield {"event": "usage", "data": json.dumps(payload)}
+                elif kind == "error":
+                    yield {"event": "error", "data": json.dumps({"message": payload})}
+                elif kind == "done":
+                    yield {"event": "done", "data": "{}"}
+        except Exception:  # noqa: BLE001 — surface as SSE error, never 500 mid-stream
+            log.exception("rag stream crashed")
             yield {"event": "error", "data": json.dumps({"message": "internal error"})}
 
     return EventSourceResponse(event_gen())
