@@ -1,0 +1,18 @@
+# Deploy:  flyctl deploy --config ops/fly/mcp.fly.toml --dockerfile services/mcp-server/Dockerfile
+# The agent reaches this over Fly private networking at http://oncallpilot-mcp.flycast/mcp
+# (set MCP_URL on the agent app — see docs/DEPLOY.md). Not for public traffic.
+app = "oncallpilot-mcp"
+primary_region = "fra"
+
+[build]
+
+[http_service]
+  internal_port = 9000
+  force_https = true
+  auto_stop_machines = false     # the agent holds MCP sessions against it
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

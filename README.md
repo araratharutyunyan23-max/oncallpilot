@@ -1,78 +1,136 @@
 # OncallPilot
 
-Production-grade agentic assistant for **SRE / on-call operations**: answers questions from internal docs (RAG) **and** takes actions (create a Jira ticket, check CI, query monitoring) via tools exposed over **MCP** — with source citations and a human confirmation before any destructive action.
+A production-grade agentic assistant for **SRE / on-call operations**. It answers
+questions from internal runbooks **with cited sources** (RAG), and it **takes
+actions** — check CI status, query monitoring alerts, file an incident ticket —
+via tools exposed over **MCP**, pausing for **human approval** before anything
+destructive.
 
-The point of the project is the **production contour** ("coral layer"), not another RAG demo: **evals as a blocking CI gate · observability (cost / latency / tokens per request) · guardrails (prompt injection incl. indirect, PII, tool allowlist, human-in-the-loop, abuse/spend caps) mapped to the OWASP LLM Top-10.**
+The point isn't another RAG demo. It's the **production contour** ("coral layer")
+that separates a real tool from a tutorial: **evals as a blocking CI gate ·
+per-request observability (cost / latency / tokens) · guardrails (prompt
+injection, PII, human-in-the-loop) mapped to the OWASP LLM Top-10.**
 
-> **Status: Phase 0 (skeleton).** Next.js chat ↔ FastAPI ↔ one streamed Claude call, edge rate-limit + spend-cap, deployable. RAG, the LangGraph agent, MCP tools, evals, and the observability/guardrail layer land in P1–P4. See the roadmap below and `DECISIONS.md`.
+> **Status: feature-complete (P0–P4).** RAG, the LangGraph agent + MCP tools with
+> human-in-the-loop, the evals gate, observability, and guardrails are all built
+> and verified end-to-end on live Claude. Remaining: deploy (P5) — see
+> [`docs/DEPLOY.md`](docs/DEPLOY.md).
 
-## Architecture (target)
+## Architecture
 
 ```mermaid
-graph LR
-  UI["Next.js — chat + evals/traces dashboard"] -->|SSE POST /chat| API["FastAPI agent"]
-  API --> LG["LangGraph (retrieve → decide → act, HITL)"]
-  LG --> RAG["hybrid retrieval + rerank + citations (pgvector)"]
-  LG --> MCP["MCP tools server (Jira / CI / monitoring)"]
-  LG --> CLAUDE["Claude — haiku / sonnet / opus routing"]
-  CORAL["coral layer: evals-gate · observability · guardrails"] -.wraps.-> LG
+graph TD
+  UI["Next.js operator console<br/>Ask · Act · /dashboard"]
+  UI -->|"SSE"| API["FastAPI<br/>edge-guard · input injection guard"]
+  API --> RAG["/rag — hybrid retrieval + rerank<br/>→ Claude + native citations"]
+  API --> AG["/agent — LangGraph<br/>retrieve → decide → act + HITL"]
+  RAG --> PG[("Postgres 16<br/>pgvector + FTS")]
+  AG --> PG
+  AG -->|"MCP (Streamable HTTP)"| MCP["MCP tools server<br/>CI · alerts · Jira (destructive)"]
+  RAG --> CLAUDE["Claude routing<br/>haiku · sonnet · opus"]
+  AG --> CLAUDE
+  CORAL{{"CORAL LAYER<br/>evals-CI-gate · telemetry + dashboard · guardrails + OWASP"}}
+  CORAL -.wraps.-> API
 ```
 
-Phase 0 implements only `UI → API → CLAUDE` (single streamed call) plus the edge guard.
+## What it does — two flows
+
+**Ask** (grounded Q&A): *"Redis is at 95% memory and rejecting writes with OOM —
+first steps?"* → retrieves `runbooks/redis-oom`, answers with **that runbook's
+exact steps** (`maxmemory-policy allkeys-lru`, `--bigkeys`, …) and **clickable
+citations** to the source spans.
+
+**Act** (agent + human-in-the-loop): *"The api-deploy CI is red — file an SRE
+incident."* → the agent checks CI (`get_ci_status`), sees the failed run, queries
+alerts, then proposes `create_jira_ticket` and **pauses**. The operator clicks
+**Approve** → the ticket is created (`SRE-4201`) — idempotent, so a retry never
+double-files.
+
+## Key features
+
+- **Production RAG** — hybrid dense (`pgvector`) + Postgres FTS fused with
+  Reciprocal Rank Fusion, cross-encoder rerank available, and **native Anthropic
+  Citations** (real source spans, not model-asserted footnotes). Grounded refusal
+  when the corpus doesn't cover a question.
+- **Agentic tool use with human-in-the-loop** — a LangGraph `retrieve → decide →
+  act` graph over 3 MCP tools; destructive actions gate on a durable approval
+  interrupt; `tool_call_id` doubles as an idempotency key.
+- **Evals as a CI gate** — golden datasets + deterministic safety checks +
+  faithfulness (LLM judge) gated on a baseline ratchet; a PR that regresses
+  quality goes red. `make eval`.
+- **Observability** — cost / latency / tokens per request, a live `/dashboard`.
+- **Guardrails** — input prompt-injection block, `<untrusted_*>` datamarking of
+  tool output, PII/secret redaction, mapped to the **OWASP LLM Top-10** — with
+  structural controls (HITL, channel separation) that hold regardless of any
+  classifier.
+
+Every non-obvious decision — and its measured tradeoff — is in
+[`DECISIONS.md`](DECISIONS.md).
 
 ## Stack
 
-Python (FastAPI + LangGraph + RAGAS) · Next.js 15 (React + Tailwind) · Claude (Anthropic) with model routing · Postgres 16 + pgvector · Docker + Fly.io · GitHub Actions.
+Python (FastAPI · LangGraph · RAGAS-style evals) · Next.js 15 (React · Tailwind) ·
+Claude with model routing (`haiku-4-5` / `sonnet-5` / `opus-4-8`) · Postgres 16 +
+pgvector · MCP · Docker + Fly.io · GitHub Actions.
 
 ## Quickstart (local)
 
-Requires Docker, or: Python 3.10 + [uv](https://docs.astral.sh/uv/) + Node 22.
+Requires Docker, Node 22, Python 3.10 + [uv](https://docs.astral.sh/uv/).
 
 ```bash
 cp .env.example .env
-# set ANTHROPIC_API_KEY=... in .env  (the only required secret in P0)
+# set ANTHROPIC_API_KEY=... in .env   (the only required secret)
 
-# Option A — everything in Docker:
-make up                 # → web http://localhost:3000 , agent http://localhost:8000
+make bootstrap            # uv sync (agent + mcp) + npm install (web)
+make db-up                # Postgres 16 + pgvector (host :55432)
 
-# Option B — run each locally:
-make bootstrap          # installs uv + agent/web deps
-make agent-dev          # agent with reload on :8000
-make web                # web on :3000
+# ingest the SRE corpus into pgvector (downloads the embedding model once)
+cd services/agent && uv run python -m app.retrieval.ingest && cd -
+
+# run the three processes (separate shells):
+cd services/mcp-server && uv run python -m app.server      # MCP tools  :9000
+make agent-dev                                             # FastAPI    :8000
+make web                                                   # console    :3000
 ```
 
-Without `ANTHROPIC_API_KEY`, the agent still boots: `/healthz` is green, `/readyz` returns 503, and `/chat` returns a clear 503 — so you can verify the plumbing before wiring a key.
-
-### Endpoints (agent)
-
-| Method | Path      | Purpose                                             |
-|--------|-----------|-----------------------------------------------------|
-| GET    | `/healthz`| liveness (always 200)                               |
-| GET    | `/readyz` | readiness (503 until `ANTHROPIC_API_KEY` is set)    |
-| POST   | `/chat`   | one streamed Claude completion over SSE, edge-guarded|
-
-`POST /chat` body: `{"query": "...", "conversation_id": "..."}` → SSE events `token` / `usage` / `done` / `error`.
-
-## Tests & lint
+Open **http://localhost:3000** — **Ask** for a cited answer, **Act** to watch the
+agent gather facts and pause for your approval, **metrics →** for the dashboard.
 
 ```bash
-make test     # agent unit tests (health, edge-guard, SSE plumbing via a fake client)
-make lint     # ruff + mypy (agent), tsc (web)
+make eval          # run the eval gate (needs the stack up + ANTHROPIC_API_KEY)
+make test lint     # 36 unit tests · ruff + mypy
 ```
 
-## Deploy
+### Endpoints (agent, :8000)
 
-`ops/fly/*.fly.toml` + `.github/workflows/deploy.yml` deploy `agent` and `web` to Fly.io on a `v*` tag (needs `FLY_API_TOKEN` + pre-created apps). The agent runs always-on (SSE); no database in P0.
+| Method | Path | Purpose |
+|--------|------|---------|
+| POST | `/rag` | grounded answer + native citations (SSE) |
+| POST | `/agent` | agentic retrieve→decide→act with HITL (SSE) |
+| POST | `/agent/{id}/resume` | approve/deny a paused destructive action |
+| GET | `/api/metrics/summary` · `/recent` | per-request telemetry |
+| GET | `/healthz` · `/readyz` | liveness / readiness |
 
-## Roadmap
+## Measured (live, seeded eval baseline)
 
-| Phase | What |
-|-------|------|
-| **P0** ✅ | skeleton: chat ↔ FastAPI ↔ one streamed Claude call + edge guard, deployed |
-| P1 | RAG: ingest, hybrid retrieval + rerank, cited answers, grounded refusal |
-| P2 | LangGraph agent + 3 MCP tools, multi-step, human-in-the-loop on destructive |
-| P3 | evals: golden dataset + RAGAS + custom checks as a blocking CI gate |
-| P4 | observability + guardrails: tracing, cost/latency per request, injection/PII, OWASP map |
-| P5 | polish: README demo GIF, live link, Loom |
+- Retrieval recall@6 **1.00** / MRR 0.90 (22 gold cases)
+- Answer faithfulness **0.989**; must-cite 1.00
+- Agent confirmation-gate + no-forbidden-tool **1.00** (zero-tolerance)
+- Cost ≈ **$0.02** / grounded answer, **$0.02–0.05** / agent run
 
-Design reasoning lives in [`DECISIONS.md`](./DECISIONS.md).
+## Phases
+
+| Phase | Status |
+|-------|--------|
+| P0 skeleton · P1 RAG · P2 agent + MCP + HITL | ✅ |
+| P3 evals-as-CI-gate | ✅ |
+| P4 observability + guardrails (the coral layer) | ✅ |
+| P5 deploy + demo | → [`docs/DEPLOY.md`](docs/DEPLOY.md) |
+
+## Engineering notes
+
+Built phase by phase, each **verified by running** (not just tests) — which caught
+~16 real bugs mid-build. The Phase-2 agent was put through a multi-agent
+**adversarial code review** (8 findings, all fixed). Design decisions, measured
+tradeoffs, and the OWASP mapping are in [`DECISIONS.md`](DECISIONS.md); the UI
+direction is in [`docs/DESIGN_BRIEF.md`](docs/DESIGN_BRIEF.md).

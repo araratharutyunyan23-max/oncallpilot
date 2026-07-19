@@ -17,6 +17,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Deploy MCP tools server
+        if: ${{ env.FLY_API_TOKEN != '' }}
+        run: flyctl deploy --config ops/fly/mcp.fly.toml --dockerfile services/mcp-server/Dockerfile --remote-only
       - name: Deploy agent
         if: ${{ env.FLY_API_TOKEN != '' }}
         run: flyctl deploy --config ops/fly/agent.fly.toml --dockerfile services/agent/Dockerfile --remote-only
