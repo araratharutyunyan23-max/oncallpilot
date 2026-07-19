@@ -16,6 +16,22 @@ injection, PII, human-in-the-loop) mapped to the OWASP LLM Top-10.**
 > and verified end-to-end on live Claude. Remaining: deploy (P5) — see
 > [`docs/DEPLOY.md`](docs/DEPLOY.md).
 
+## Demo
+
+Screenshots below are the real UI driven end-to-end against live Claude (`claude-sonnet-5`) — not mockups.
+
+**Ask — a grounded answer with real citations.** Hybrid retrieval → Claude with native Anthropic Citations: every claim links to the exact source span, and it refuses plainly when the corpus doesn't cover the question.
+
+![Ask flow — grounded RAG answer with native citations](docs/media/02-ask-rag.png)
+
+**Act — the agent pauses for human approval before anything destructive.** It checks CI (`get_ci_status`), queries alerts, then proposes `create_jira_ticket` and **stops** at a confirmation gate showing the exact payload — `tool_call_id` doubles as the idempotency key, so an approved retry never double-files.
+
+![Act flow — human-in-the-loop approval gate](docs/media/03-approval-gate.png)
+
+**Observability — per-request cost / latency / tokens, live.** Cache-hit rate, model mix, and a rolling log of every request (including paused agent runs).
+
+![Observability dashboard — cost, latency, tokens per request](docs/media/05-dashboard.png)
+
 ## Architecture
 
 ```mermaid
