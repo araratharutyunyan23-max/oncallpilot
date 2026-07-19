@@ -21,3 +21,12 @@ def test_daily_spend_cap():
     g.add_spend(0.02)
     assert not g.spend_ok()
     assert g.spend_remaining() == 0.0
+
+
+def test_charge_thread_bills_cumulative_delta():
+    g = EdgeGuard(Settings(daily_spend_cap_usd=100.0))
+    assert g.charge_thread("c1", 0.02) == 0.02  # first charge (e.g. at pause)
+    assert g.charge_thread("c1", 0.02) == 0.0   # re-drive same total -> no double charge
+    assert round(g.charge_thread("c1", 0.05), 2) == 0.03  # resume -> only the delta
+    assert round(g.spent_today(), 2) == 0.05    # billed exactly once, in total
+    assert g.charge_thread("c2", 0.10) == 0.10  # a separate thread is independent

@@ -33,6 +33,7 @@ class EdgeGuard:
         self._buckets: dict[str, _Bucket] = {}
         self._spend_usd = 0.0
         self._spend_day = self._today()
+        self._thread_charged: dict[str, float] = {}  # cid -> cumulative $ already charged
         self._lock = threading.Lock()
 
     @staticmethod
@@ -71,6 +72,19 @@ class EdgeGuard:
         with self._lock:
             self._roll_day()
             self._spend_usd += max(0.0, usd)
+
+    def charge_thread(self, cid: str, cumulative_usd: float) -> float:
+        """Charge a conversation's *cumulative* cost, billing only the increment
+        since it was last charged. Idempotent per (cid, total): a paused run
+        charges its decide-turn cost, resume charges only the delta, and a
+        re-driven completed run charges nothing. Returns the delta billed."""
+        with self._lock:
+            self._roll_day()
+            prev = self._thread_charged.get(cid, 0.0)
+            delta = max(0.0, cumulative_usd - prev)
+            self._thread_charged[cid] = max(prev, cumulative_usd)
+            self._spend_usd += delta
+            return delta
 
     def spent_today(self) -> float:
         with self._lock:

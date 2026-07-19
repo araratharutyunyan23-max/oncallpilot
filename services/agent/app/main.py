@@ -46,7 +46,11 @@ class ResumeRequest(BaseModel):
 
 def _agent_sse(kind: str, payload: object, guard) -> dict:
     if kind == "usage" and isinstance(payload, dict):
-        guard.add_spend(float(payload.get("cost_usd", 0.0)))
+        cid = payload.get("conversation_id")
+        if cid:  # bill the run's cumulative cost as a per-thread delta (pause/resume safe)
+            guard.charge_thread(str(cid), float(payload.get("cost_usd", 0.0)))
+        else:
+            guard.add_spend(float(payload.get("cost_usd", 0.0)))
     if kind == "error":
         data = json.dumps({"message": payload})
     elif kind == "done":
@@ -135,7 +139,9 @@ async def agent(req: ChatRequest, request: Request, _: None = Depends(enforce_ed
     if not s.anthropic_api_key:
         return JSONResponse({"error": "ANTHROPIC_API_KEY not configured"}, status_code=503)
     guard = get_guard()
-    cid = req.conversation_id or f"conv-{uuid.uuid4().hex[:12]}"
+    # always a fresh conversation for a new run — a client-supplied id would let
+    # a new /agent call collide with (or resume) an existing thread's state.
+    cid = f"conv-{uuid.uuid4().hex[:12]}"
 
     async def event_gen():
         yield {"event": "meta", "data": json.dumps({"conversation_id": cid})}
