@@ -20,6 +20,7 @@ from .agent import resume_agent, run_agent
 from .config import get_settings
 from .edge_guard import enforce_edge, get_guard
 from .llm import stream_chat
+from .obs.recorder import Telemetry, get_recorder
 from .rag import stream_rag_answer
 
 _settings = get_settings()
@@ -107,10 +108,12 @@ async def rag(req: ChatRequest, request: Request, _: None = Depends(enforce_edge
     if not s.anthropic_api_key:
         return JSONResponse({"error": "ANTHROPIC_API_KEY not configured"}, status_code=503)
     guard = get_guard()
+    tel = Telemetry("rag")
 
     async def event_gen():
         try:
             async for kind, payload in stream_rag_answer(req.query, s):
+                tel.observe(kind, payload)
                 if kind == "token":
                     yield {"event": "token", "data": json.dumps({"text": payload})}
                 elif kind == "sources":
@@ -125,8 +128,11 @@ async def rag(req: ChatRequest, request: Request, _: None = Depends(enforce_edge
                 elif kind == "done":
                     yield {"event": "done", "data": "{}"}
         except Exception:  # noqa: BLE001 — surface as SSE error, never 500 mid-stream
+            tel.ok = False
             log.exception("rag stream crashed")
             yield {"event": "error", "data": json.dumps({"message": "internal error"})}
+        finally:
+            tel.finalize()
 
     return EventSourceResponse(event_gen())
 
@@ -142,15 +148,20 @@ async def agent(req: ChatRequest, request: Request, _: None = Depends(enforce_ed
     # always a fresh conversation for a new run — a client-supplied id would let
     # a new /agent call collide with (or resume) an existing thread's state.
     cid = f"conv-{uuid.uuid4().hex[:12]}"
+    tel = Telemetry("agent")
 
     async def event_gen():
         yield {"event": "meta", "data": json.dumps({"conversation_id": cid})}
         try:
             async for kind, payload in run_agent(req.query, cid):
+                tel.observe(kind, payload)
                 yield _agent_sse(kind, payload, guard)
         except Exception:  # noqa: BLE001
+            tel.ok = False
             log.exception("agent endpoint crashed")
             yield {"event": "error", "data": json.dumps({"message": "internal error"})}
+        finally:
+            tel.finalize()
 
     return EventSourceResponse(event_gen())
 
@@ -164,13 +175,28 @@ async def agent_resume(
     if not s.anthropic_api_key:
         return JSONResponse({"error": "ANTHROPIC_API_KEY not configured"}, status_code=503)
     guard = get_guard()
+    tel = Telemetry("resume")
 
     async def event_gen():
         try:
             async for kind, payload in resume_agent(conversation_id, req.approvals):
+                tel.observe(kind, payload)
                 yield _agent_sse(kind, payload, guard)
         except Exception:  # noqa: BLE001
+            tel.ok = False
             log.exception("agent resume crashed")
             yield {"event": "error", "data": json.dumps({"message": "internal error"})}
+        finally:
+            tel.finalize()
 
     return EventSourceResponse(event_gen())
+
+
+@app.get("/api/metrics/summary")
+async def metrics_summary() -> dict:
+    return get_recorder().summary()
+
+
+@app.get("/api/metrics/recent")
+async def metrics_recent(limit: int = 50) -> list[dict]:
+    return get_recorder().recent(min(max(1, limit), 200))

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { type ReactNode, useCallback, useRef, useState } from "react";
 import {
   Citation,
@@ -140,17 +141,22 @@ function Header({ mode, setMode, disabled }: { mode: Mode; setMode: (m: Mode) =>
         <h1 className="text-lg font-semibold tracking-tight">OncallPilot</h1>
         <span className="text-xs text-faint">SRE on-call assistant</span>
       </div>
-      <div className="flex rounded-md border border-border p-0.5 text-xs">
-        {(["ask", "act"] as Mode[]).map((m) => (
-          <button
-            key={m}
-            disabled={disabled}
-            onClick={() => setMode(m)}
-            className={`rounded px-2.5 py-1 ${mode === m ? "bg-surface text-fg" : "text-muted"} disabled:opacity-50`}
-          >
-            {m === "ask" ? "Ask" : "Act"}
-          </button>
-        ))}
+      <div className="flex items-center gap-3">
+        <Link href="/dashboard" className="text-xs text-muted hover:text-fg">
+          metrics →
+        </Link>
+        <div className="flex rounded-md border border-border p-0.5 text-xs">
+          {(["ask", "act"] as Mode[]).map((m) => (
+            <button
+              key={m}
+              disabled={disabled}
+              onClick={() => setMode(m)}
+              className={`rounded px-2.5 py-1 ${mode === m ? "bg-surface text-fg" : "text-muted"} disabled:opacity-50`}
+            >
+              {m === "ask" ? "Ask" : "Act"}
+            </button>
+          ))}
+        </div>
       </div>
     </header>
   );

@@ -11,6 +11,7 @@ interrupt_before; `resume_agent` injects approvals and continues."""
 import logging
 from collections.abc import AsyncIterator
 
+from .config import get_settings
 from .graph.build import get_graph, pending_payload
 
 log = logging.getLogger("oncallpilot.agent")
@@ -37,6 +38,7 @@ async def _drive(graph, inp, cid: str) -> AsyncIterator[tuple[str, object]]:
     vals = snap.values
     usage = {
         "conversation_id": cid,
+        "model": get_settings().agent_model,
         "cost_usd": round(vals.get("cost_usd", 0.0), 6),
         "tokens_in": vals.get("tokens_in", 0),
         "tokens_out": vals.get("tokens_out", 0),
