@@ -93,6 +93,15 @@ No product auth, billing, or multi-tenancy; no fine-tuning; the corpus stays nar
 
 ---
 
+## [P3] Evals as a two-tier CI gate
+- **Context:** "Works on my machine" isn't a quality bar. The project's headline signal is measurable quality that can't be silently dropped.
+- **Decision:** Two tiers. (1) A **deterministic** tier — retrieval recall, agent tool-selection, the destructive **confirmation gate**, and "no forbidden tool executed" — computed by running the real flows and inspecting outputs, **zero-tolerance** on the safety checks (floor 1.0), and (for retrieval) **no Anthropic call** so it can gate a PR without a key/secret. (2) A **thresholded quality** tier — faithfulness (LLM judge via structured outputs), must_include / must_cite, answer relevance — gated on a **floor + regression band** vs a committed **baseline ratchet** (`eval/baseline.json`). `run_evals` exits non-zero on any breach; the answer/task tiers gate only when `ANTHROPIC_API_KEY` is set.
+- **Judge:** faithfulness is scored by a pinned model + fixed prompt + `json_schema` structured output (no majority-of-N — sampling params are unavailable on current models, so N identical calls add cost without variance reduction; residual variance is absorbed by the regression band).
+- **Measured (2026-07-19, seeded baseline):** retrieval recall@6 1.00 / MRR 0.90 (n=22); answer faithfulness mean 0.989, must_include 1.00, must_cite 1.00; task confirmation-gate + no-forbidden 1.00. The suite **caught a real blemish**: an out-of-corpus "refusal" answer correctly refused but still named outside specifics (Istio `PeerAuthentication`/`DestinationRule`) — surfaced per-case (not gated). That is the point of evals: catching the subtle thing a human misses.
+- **Known follow-up:** langgraph `MemorySaver` warns when msgpack-serializing the raw Anthropic content blocks kept in agent state (works today; forward-compat fix is to store plain dicts or register the block types).
+
+---
+
 ## OWASP LLM Top-10 mapping (skeleton — filled in as controls land)
 
 | OWASP | Control | Phase |

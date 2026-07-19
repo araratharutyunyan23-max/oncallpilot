@@ -1,0 +1,57 @@
+name: evals
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+# Two-tier gate: the retrieval suite is deterministic (no Anthropic call) and
+# always blocks. The answer + task suites run the real /rag and agent flows and
+# gate only when the ANTHROPIC_API_KEY secret is present (else they're skipped).
+jobs:
+  evals:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: oncallpilot
+          POSTGRES_PASSWORD: oncallpilot
+          POSTGRES_DB: oncallpilot
+        ports:
+          - "55432:5432"
+        options: >-
+          --health-cmd "pg_isready -U oncallpilot" --health-interval 5s
+          --health-timeout 3s --health-retries 12
+    env:
+      DATABASE_URL: postgresql://oncallpilot:oncallpilot@localhost:55432/oncallpilot
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      MCP_URL: http://127.0.0.1:9000/mcp
+      HF_HUB_DISABLE_PROGRESS_BARS: "1"
+    defaults:
+      run:
+        working-directory: services/agent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.10"
+      - name: cache embedding/reranker models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-bge-v1
+      - run: uv sync
+      - name: apply schema
+        run: >-
+          uv run python -c "import os,psycopg;
+          c=psycopg.connect(os.environ['DATABASE_URL'],autocommit=True);
+          c.execute(open('app/retrieval/schema.sql').read()); print('schema ok')"
+      - name: ingest corpus
+        run: uv run python -m app.retrieval.ingest
+      - name: start MCP tools server (agent tier)
+        if: ${{ env.ANTHROPIC_API_KEY != '' }}
+        run: |
+          (cd ../mcp-server && uv sync && uv run python -m app.server &)
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:9000/mcp && break; sleep 1; done
+      - name: run evals (gate)
+        run: uv run python -m app.eval.run

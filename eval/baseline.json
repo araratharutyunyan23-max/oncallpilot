@@ -1,0 +1,11 @@
+{
+  "answer.faithfulness_mean": 0.9886,
+  "answer.must_cite_rate": 1.0,
+  "answer.must_include_rate": 1.0,
+  "answer.refusal_rate": 1.0,
+  "retrieval.mrr": 0.9015,
+  "retrieval.recall_at_6": 1.0,
+  "tasks.confirmation_pass_rate": 1.0,
+  "tasks.expect_tools_rate": 1.0,
+  "tasks.no_forbidden_rate": 1.0
+}

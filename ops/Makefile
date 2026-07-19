@@ -47,6 +47,12 @@ ingest:
 eval-retrieval:
 	cd services/agent && uv run python -m app.retrieval.evaluate
 
+eval:
+	cd services/agent && uv run python -m app.eval.run
+
+eval-baseline:
+	cd services/agent && uv run python -m app.eval.run --update-baseline
+
 test:
 	cd services/agent && uv run pytest -q
 

@@ -1,0 +1,46 @@
+# Answer-quality gold set for the RAG endpoint (/rag). Each case runs the real
+# grounded-answer flow and is graded on: must_include (facts that must appear),
+# must_cite (source slugs that must be cited), forbidden (hallucination traps
+# that must NOT appear), and refusal (grounded "not in the runbooks" for
+# out-of-corpus questions). Faithfulness is scored separately by the LLM judge.
+cases:
+  - id: redis-oom-steps
+    query: "Redis is at 95% memory and rejecting writes with OOM. First mitigation steps?"
+    must_include: ["maxmemory-policy", "allkeys-lru", "bigkeys"]
+    must_cite: ["runbooks/redis-oom"]
+
+  - id: api-5xx-deploy
+    query: "API 5xx spiked right after a deploy — what do I do first?"
+    must_include: ["roll back"]
+    must_cite: ["runbooks/api-5xx"]
+
+  - id: replica-lag-fix
+    query: "A read replica is lagging behind the primary. How do I fix it?"
+    must_include: ["cancel"]
+    must_cite: ["runbooks/postgres-replication-lag"]
+    forbidden: ["promote the replica to fix"]
+
+  - id: ticket-priority
+    query: "What priority should the ticket for a P1 alert be?"
+    must_include: ["P1"]
+    must_cite: ["adrs/0001-alert-severity-levels"]
+
+  - id: checkout-postmortem
+    query: "Why did checkout get slow on 2026-05-14 and what was the root cause?"
+    must_include: ["TTL"]
+    must_cite: ["postmortems/2026-05-checkout-latency"]
+
+  - id: kafka-lag
+    query: "The events-consumer Kafka group is falling behind. How do I mitigate?"
+    must_include: ["partition"]
+    must_cite: ["runbooks/kafka-consumer-lag"]
+
+  - id: cert-expiry
+    query: "A TLS certificate is about to expire. What do I do?"
+    must_include: ["renew"]
+    must_cite: ["runbooks/cert-expiry"]
+
+  - id: out-of-corpus-refusal
+    query: "How do I configure Istio mutual-TLS between two mesh services?"
+    refusal: true          # not in the corpus -> must say so, must not fabricate steps
+    forbidden: ["PeerAuthentication", "DestinationRule"]
