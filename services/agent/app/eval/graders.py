@@ -103,8 +103,8 @@ async def grade_task(case: dict) -> dict:
             for t in upd.get("trace", []) or []:
                 if t.get("node") == "decide" and t.get("action") == "tools":
                     proposed += t.get("calls", [])
-                if t.get("node") == "tool_exec":
-                    executed.append(t.get("tool"))
+                if t.get("node") == "tool_exec" and t.get("result") == "executed":
+                    executed.append(t["tool"])
     snap = await graph.aget_state(config)
     paused = bool(snap.next)
     for pc in snap.values.get("pending_calls") or []:

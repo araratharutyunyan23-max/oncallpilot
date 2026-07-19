@@ -120,14 +120,7 @@ async def stream_rag_answer(
                     yield ("token", text)
                 final = await stream.get_final_message()
                 yield ("citations", _extract_citations(final, manifest))
-                u = final.usage
-                usage = Usage(
-                    input_tokens=getattr(u, "input_tokens", 0) or 0,
-                    output_tokens=getattr(u, "output_tokens", 0) or 0,
-                    cache_read_input_tokens=getattr(u, "cache_read_input_tokens", 0) or 0,
-                    cache_creation_input_tokens=getattr(u, "cache_creation_input_tokens", 0)
-                    or 0,
-                )
+                usage = Usage.from_response(final.usage)
                 cost = cost_usd(settings.chat_model, usage, settings.cache_ttl)
                 yield (
                     "usage",
@@ -145,10 +138,12 @@ async def stream_rag_answer(
             if got or attempt >= max_retries:
                 log.warning("rag stream failed, no retry: %s", type(e).__name__)
                 yield ("error", f"upstream unavailable ({type(e).__name__})")
+                yield ("done", None)  # terminate on `done` like the agent endpoints
                 return
             attempt += 1
             await backoff_sleep(attempt)
         except anthropic.APIStatusError as e:
             log.warning("rag api error: %s", e)
             yield ("error", f"api error {getattr(e, 'status_code', '?')}")
+            yield ("done", None)
             return

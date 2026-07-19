@@ -19,3 +19,4 @@ class AgentState(TypedDict, total=False):
     cost_usd: Annotated[float, operator.add]
     tokens_in: Annotated[int, operator.add]
     tokens_out: Annotated[int, operator.add]
+    cache_read: Annotated[int, operator.add]

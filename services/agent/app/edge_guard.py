@@ -6,7 +6,9 @@ spend-protection contour the plan maps to OWASP LLM04/LLM10.
 
 P0 is single-process, so in-memory counters are sufficient. This is NOT
 multi-worker safe (each uvicorn worker keeps its own counters). A shared store
-(Redis) is the documented P4 upgrade.
+(Redis) is the documented P4 upgrade. The two in-memory maps (rate buckets,
+per-thread charges) are bounded by opportunistic size-triggered eviction so a
+long-running public demo can't grow them without limit.
 """
 
 import threading
@@ -31,9 +33,12 @@ class EdgeGuard:
         self._rate_per_sec = settings.rate_limit_per_min / 60.0
         self._capacity = float(settings.rate_limit_burst)
         self._buckets: dict[str, _Bucket] = {}
+        self._bucket_evict_at = 10_000  # sweep idle buckets once the map grows past this
         self._spend_usd = 0.0
         self._spend_day = self._today()
-        self._thread_charged: dict[str, float] = {}  # cid -> cumulative $ already charged
+        # cid -> (cumulative $ already charged, last monotonic touch)
+        self._thread_charged: dict[str, tuple[float, float]] = {}
+        self._thread_ttl = 24 * 3600.0  # evict thread charges idle longer than a day
         self._lock = threading.Lock()
 
     @staticmethod
@@ -55,6 +60,13 @@ class EdgeGuard:
                 self._buckets[key] = b
             b.tokens = min(self._capacity, b.tokens + (now - b.last) * self._rate_per_sec)
             b.last = now
+            if len(self._buckets) > self._bucket_evict_at:
+                # a bucket idle long enough to have refilled to capacity holds no
+                # state, so evicting it is equivalent to recreating it fresh
+                idle = self._capacity / self._rate_per_sec if self._rate_per_sec > 0 else 0.0
+                cutoff = now - max(idle, 60.0)
+                for k in [k for k, v in self._buckets.items() if v.last < cutoff]:
+                    del self._buckets[k]
             if b.tokens >= 1.0:
                 b.tokens -= 1.0
                 return True
@@ -80,10 +92,21 @@ class EdgeGuard:
         re-driven completed run charges nothing. Returns the delta billed."""
         with self._lock:
             self._roll_day()
-            prev = self._thread_charged.get(cid, 0.0)
+            now = time.monotonic()
+            prev = self._thread_charged.get(cid, (0.0, now))[0]
             delta = max(0.0, cumulative_usd - prev)
-            self._thread_charged[cid] = max(prev, cumulative_usd)
+            self._thread_charged[cid] = (max(prev, cumulative_usd), now)
             self._spend_usd += delta
+            if len(self._thread_charged) > 1000:
+                # TTL far exceeds any realistic resume window, so eviction can't
+                # make a resumed conversation re-charge from zero
+                stale = [
+                    c
+                    for c, (_, t) in self._thread_charged.items()
+                    if now - t > self._thread_ttl
+                ]
+                for c in stale:
+                    del self._thread_charged[c]
             return delta
 
     def spent_today(self) -> float:

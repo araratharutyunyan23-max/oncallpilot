@@ -25,9 +25,9 @@ def redact(text: str, types: set[str] | None = None) -> tuple[str, list[str]]:
     for name, rx in _PATTERNS:
         if types is not None and name not in types:
             continue
-        if rx.search(out):
+        out, n = rx.subn(f"[REDACTED_{name.upper()}]", out)
+        if n:
             found_set.add(name)
-            out = rx.sub(f"[REDACTED_{name.upper()}]", out)
     return out, sorted(found_set)
 
 

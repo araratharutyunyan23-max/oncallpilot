@@ -50,88 +50,92 @@ def hybrid_search(
         use_rerank = s.rerank_enabled
     own = conn is None
     conn = conn or connect()
-    lat: dict[str, float] = {}
+    # try/finally so an owned connection is released even if embed/SQL/rerank
+    # raises — otherwise every error on the hot path leaks a connection.
+    try:
+        lat: dict[str, float] = {}
 
-    t = time.perf_counter()
-    qvec = np.asarray(encode_query(query), dtype=np.float32)
-    lat["embed"] = (time.perf_counter() - t) * 1000
-
-    conn.execute(f"SET hnsw.ef_search = {int(s.hnsw_ef_search)}")
-    t = time.perf_counter()
-    dense = [
-        int(r[0])
-        for r in conn.execute(
-            "SELECT id FROM chunks ORDER BY embedding <=> %s LIMIT %s",
-            (qvec, s.retrieve_fetch_k),
-        ).fetchall()
-    ]
-    lat["dense"] = (time.perf_counter() - t) * 1000
-
-    sparse: list[int] = []
-    if use_sparse:
         t = time.perf_counter()
-        sparse = [
+        qvec = np.asarray(encode_query(query), dtype=np.float32)
+        lat["embed"] = (time.perf_counter() - t) * 1000
+
+        conn.execute(f"SET hnsw.ef_search = {int(s.hnsw_ef_search)}")
+        t = time.perf_counter()
+        dense = [
             int(r[0])
             for r in conn.execute(
-                "SELECT id FROM chunks WHERE fts @@ plainto_tsquery('english', %s) "
-                "ORDER BY ts_rank(fts, plainto_tsquery('english', %s)) DESC LIMIT %s",
-                (query, query, s.retrieve_fetch_k),
+                "SELECT id FROM chunks ORDER BY embedding <=> %s LIMIT %s",
+                (qvec, s.retrieve_fetch_k),
             ).fetchall()
         ]
-        lat["sparse"] = (time.perf_counter() - t) * 1000
+        lat["dense"] = (time.perf_counter() - t) * 1000
 
-    arms = [dense, sparse] if use_sparse else [dense]
-    fused = reciprocal_rank_fusion(arms, k=s.rrf_k)
-    fused_ids = [cid for cid, _ in fused]
-    rrf_by_id = dict(fused)
-    dense_rank = {cid: i + 1 for i, cid in enumerate(dense)}
-    sparse_rank = {cid: i + 1 for i, cid in enumerate(sparse)}
+        sparse: list[int] = []
+        if use_sparse:
+            t = time.perf_counter()
+            sparse = [
+                int(r[0])
+                for r in conn.execute(
+                    "SELECT id FROM chunks WHERE fts @@ plainto_tsquery('english', %s) "
+                    "ORDER BY ts_rank(fts, plainto_tsquery('english', %s)) DESC LIMIT %s",
+                    (query, query, s.retrieve_fetch_k),
+                ).fetchall()
+            ]
+            lat["sparse"] = (time.perf_counter() - t) * 1000
 
-    cand_ids = fused_ids[: s.retrieve_fetch_k]
-    meta = _fetch_meta(conn, cand_ids)
+        arms = [dense, sparse] if use_sparse else [dense]
+        fused = reciprocal_rank_fusion(arms, k=s.rrf_k)
+        fused_ids = [cid for cid, _ in fused]
+        rrf_by_id = dict(fused)
+        dense_rank = {cid: i + 1 for i, cid in enumerate(dense)}
+        sparse_rank = {cid: i + 1 for i, cid in enumerate(sparse)}
 
-    rerank_score: dict[int, float] = {}
-    if use_rerank and cand_ids:
-        t = time.perf_counter()
-        pairs = [(cid, meta[cid]["raw_text"]) for cid in cand_ids if cid in meta]
-        ranked = rerank(query, pairs, top_n=s.rerank_topn)
-        lat["rerank"] = (time.perf_counter() - t) * 1000
-        rerank_score = dict(ranked)
-        final_ids = [cid for cid, _ in ranked]
-    else:
-        final_ids = fused_ids[: s.rerank_topn]
+        cand_ids = fused_ids[: s.retrieve_fetch_k]
+        meta = _fetch_meta(conn, cand_ids)
 
-    results: list[RetrievedChunk] = []
-    for cid in final_ids:
-        m = meta.get(cid)
-        if not m:
-            continue
-        results.append(
-            RetrievedChunk(
-                chunk_id=cid,
-                document_id=m["document_id"],
-                slug=m["slug"],
-                doc_type=m["doc_type"],
-                title=m["title"],
-                heading_path=m["heading_path"],
-                raw_text=m["raw_text"],
-                char_start=m["char_start"],
-                char_end=m["char_end"],
-                dense_rank=dense_rank.get(cid),
-                sparse_rank=sparse_rank.get(cid),
-                rrf_score=rrf_by_id.get(cid, 0.0),
-                rerank_score=rerank_score.get(cid),
+        rerank_score: dict[int, float] = {}
+        if use_rerank and cand_ids:
+            t = time.perf_counter()
+            pairs = [(cid, meta[cid]["raw_text"]) for cid in cand_ids if cid in meta]
+            ranked = rerank(query, pairs, top_n=s.rerank_topn)
+            lat["rerank"] = (time.perf_counter() - t) * 1000
+            rerank_score = dict(ranked)
+            final_ids = [cid for cid, _ in ranked]
+        else:
+            final_ids = fused_ids[: s.rerank_topn]
+
+        results: list[RetrievedChunk] = []
+        for cid in final_ids:
+            m = meta.get(cid)
+            if not m:
+                continue
+            results.append(
+                RetrievedChunk(
+                    chunk_id=cid,
+                    document_id=m["document_id"],
+                    slug=m["slug"],
+                    doc_type=m["doc_type"],
+                    title=m["title"],
+                    heading_path=m["heading_path"],
+                    raw_text=m["raw_text"],
+                    char_start=m["char_start"],
+                    char_end=m["char_end"],
+                    dense_rank=dense_rank.get(cid),
+                    sparse_rank=sparse_rank.get(cid),
+                    rrf_score=rrf_by_id.get(cid, 0.0),
+                    rerank_score=rerank_score.get(cid),
+                )
             )
-        )
 
-    trace = RetrievalTrace(
-        query=query,
-        dense_ids=dense,
-        sparse_ids=sparse,
-        fused_ids=fused_ids,
-        reranked_ids=final_ids,
-        latency_ms=lat,
-    )
-    if own:
-        conn.close()
-    return results, trace
+        trace = RetrievalTrace(
+            query=query,
+            dense_ids=dense,
+            sparse_ids=sparse,
+            fused_ids=fused_ids,
+            reranked_ids=final_ids,
+            latency_ms=lat,
+        )
+        return results, trace
+    finally:
+        if own:
+            conn.close()

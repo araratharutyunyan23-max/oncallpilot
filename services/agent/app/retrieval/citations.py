@@ -11,7 +11,7 @@ def build_document_blocks(
 ) -> tuple[list[dict], list[dict]]:
     blocks: list[dict] = []
     manifest: list[dict] = []
-    for i, c in enumerate(chunks):
+    for c in chunks:
         blocks.append(
             {
                 "type": "document",
@@ -25,7 +25,6 @@ def build_document_blocks(
         )
         manifest.append(
             {
-                "document_index": i,
                 "slug": c["slug"],
                 "chunk_id": c["chunk_id"],
                 "doc_char_start": c["char_start"],

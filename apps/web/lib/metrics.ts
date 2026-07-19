@@ -1,4 +1,4 @@
-const BASE = process.env.NEXT_PUBLIC_AGENT_BASE_URL ?? "http://localhost:8000";
+export const BASE = process.env.NEXT_PUBLIC_AGENT_BASE_URL ?? "http://localhost:8000";
 
 export type Summary = {
   count: number;

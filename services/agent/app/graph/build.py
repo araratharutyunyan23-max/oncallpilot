@@ -50,16 +50,12 @@ def _context_blocks(chunks: list[Any]) -> list[dict]:
 
 
 def _usage_update(model: str, u: Any, cache_ttl: str) -> dict:
-    usage = Usage(
-        input_tokens=getattr(u, "input_tokens", 0) or 0,
-        output_tokens=getattr(u, "output_tokens", 0) or 0,
-        cache_read_input_tokens=getattr(u, "cache_read_input_tokens", 0) or 0,
-        cache_creation_input_tokens=getattr(u, "cache_creation_input_tokens", 0) or 0,
-    )
+    usage = Usage.from_response(u)
     return {
         "cost_usd": cost_usd(model, usage, cache_ttl),
         "tokens_in": usage.input_tokens,
         "tokens_out": usage.output_tokens,
+        "cache_read": usage.cache_read_input_tokens,
     }
 
 
@@ -101,6 +97,21 @@ async def _decide(state: AgentState) -> dict:
         ]
         msgs = [{"role": "user", "content": content}]
 
+    # Cache the growing prefix (system + tools + doc blocks + prior turns) with one
+    # ephemeral breakpoint on the last block of the last message — on a per-REQUEST
+    # copy only. Never persist it: across up to max_agent_steps turns that would
+    # accumulate >4 breakpoints and 400. Later turns still hit via longest-prefix
+    # match against the previous turn's write, so identical doc_blocks aren't re-paid.
+    msgs_for_call = msgs
+    if msgs and isinstance(msgs[-1].get("content"), list) and msgs[-1]["content"]:
+        *head, last = msgs
+        content = list(last["content"])
+        content[-1] = {
+            **content[-1],
+            "cache_control": {"type": "ephemeral", "ttl": s.cache_ttl},
+        }
+        msgs_for_call = [*head, {**last, "content": content}]
+
     kwargs: dict[str, Any] = {
         "model": s.agent_model,
         "max_tokens": s.chat_max_tokens,
@@ -114,7 +125,7 @@ async def _decide(state: AgentState) -> dict:
             }
         ],
         "tools": tool_defs,
-        "messages": msgs,
+        "messages": msgs_for_call,
     }
     resp = await get_client().messages.create(**kwargs)
     new_msgs = msgs + [{"role": "assistant", "content": resp.content}]

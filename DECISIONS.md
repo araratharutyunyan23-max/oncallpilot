@@ -96,7 +96,7 @@ No product auth, billing, or multi-tenancy; no fine-tuning; the corpus stays nar
 ## [P3] Evals as a two-tier CI gate
 - **Context:** "Works on my machine" isn't a quality bar. The project's headline signal is measurable quality that can't be silently dropped.
 - **Decision:** Two tiers. (1) A **deterministic** tier — retrieval recall, agent tool-selection, the destructive **confirmation gate**, and "no forbidden tool executed" — computed by running the real flows and inspecting outputs, **zero-tolerance** on the safety checks (floor 1.0), and (for retrieval) **no Anthropic call** so it can gate a PR without a key/secret. (2) A **thresholded quality** tier — faithfulness (LLM judge via structured outputs), must_include / must_cite, answer relevance — gated on a **floor + regression band** vs a committed **baseline ratchet** (`eval/baseline.json`). `run_evals` exits non-zero on any breach; the answer/task tiers gate only when `ANTHROPIC_API_KEY` is set.
-- **Judge:** faithfulness is scored by a pinned model + fixed prompt + `json_schema` structured output (no majority-of-N — sampling params are unavailable on current models, so N identical calls add cost without variance reduction; residual variance is absorbed by the regression band).
+- **Judge:** faithfulness is scored by a **pinned `judge_model`** (a dedicated config setting, deliberately decoupled from `chat_model` so the grader never grades its own output, and pinned so the baseline stays reproducible) + fixed prompt + `json_schema` structured output (no majority-of-N — sampling params are unavailable on current models, so N identical calls add cost without variance reduction; residual variance is absorbed by the regression band). Transient judge errors (429/5xx/connection) are **retried** before falling back to 0.0, so a network blip can't red the gate for infra reasons rather than answer quality.
 - **Measured (2026-07-19, seeded baseline):** retrieval recall@6 1.00 / MRR 0.90 (n=22); answer faithfulness mean 0.989, must_include 1.00, must_cite 1.00; task confirmation-gate + no-forbidden 1.00. The suite **caught a real blemish**: an out-of-corpus "refusal" answer correctly refused but still named outside specifics (Istio `PeerAuthentication`/`DestinationRule`) — surfaced per-case (not gated). That is the point of evals: catching the subtle thing a human misses.
 - **Known follow-up:** langgraph `MemorySaver` warns when msgpack-serializing the raw Anthropic content blocks kept in agent state (works today; forward-compat fix is to store plain dicts or register the block types).
 
@@ -118,5 +118,25 @@ Two kinds of control: **structural** (code-enforced, holds regardless of any cla
 | LLM10 Unbounded consumption / model theft | hosted model, key via SDK env (**never echoed in traces/logs**), spend caps | ✓ (P0/P4) |
 
 The prompt-injection and excessive-agency defenses are deliberately **structural**: the HITL gate and document-block separation hold even if `injection.classify` misses — the classifier is defense-in-depth, not the load-bearing control.
+
+---
+
+## Adversarial polish pass (2026-07-19)
+
+After the feature build (P0–P4), the codebase went through a **multi-agent review**: seven senior-reviewer agents each swept one quality axis (agent core, retrieval, coral layer, MCP/tools, web, Claude-API currency, tests/consistency), and **every finding was then adversarially re-verified** by an independent skeptic that read the actual code and judged *real? safe-to-fix? genuine improvement or churn?* — defaulting to reject. Of 34 worth-it findings, 29 survived verification and were applied; 1 was deferred as architectural; 4 were rejected as taste/risk.
+
+Representative fixes (all with tests/lint/mypy green after):
+- **Ingest idempotency (high):** under the autocommit connection, `upsert_document` committed the new `content_sha` *before* chunks were embedded/inserted; a failure mid-way left the doc row carrying the final sha with zero chunks → permanently "unchanged" and never re-indexed. Now each document's upsert+chunk+insert runs in **one `conn.transaction()`** (works under autocommit), so the sha and its chunks commit together or roll back together.
+- **Connection leak:** `hybrid_search` closed its owned connection only on the success path — now a `try/finally`, so an embed/SQL/rerank error can't exhaust the pool on the hot path.
+- **Guardrail breakout:** `datamark` now de-fangs a forged `</untrusted_*>` delimiter so hostile tool output can't escape the data channel back into instruction context.
+- **Eval-gate integrity:** `--update-baseline` **merges** instead of overwriting (a keyless reseed no longer erases the LLM-tier ratchet), and a safety metric that lost all its cases now **fails loudly** instead of silently dropping out of the gate.
+- **UI robustness:** the SSE read loop is wrapped so a mid-stream drop can't wedge the console busy forever; in-flight streams are **aborted on unmount/new-send**; the destructive-action approval gate got `role="alertdialog"` + focus management (the most safety-critical surface was silent to assistive tech).
+- **Prompt caching:** the agent decide-loop now sets a per-request cache breakpoint on the growing doc-blocks/tool-result prefix (applied to a request-only copy so breakpoints never accumulate in persisted state).
+
+**Deferred (needs sign-off):** the faithfulness judge grades a *separately re-retrieved* context rather than the exact blocks the model saw — harmless today (deterministic retrieval, identical defaults) but the correct fix reaches into the production streaming contract, so it's a human-approved change, not an autonomous one.
+
+**Method note:** this is the same verify-before-trust discipline used during the build, applied to the finished code — the point of the adversarial second pass is that a plausible-but-wrong "fix" is worse than no fix.
+
+---
 
 The full 42-decision design log for all phases lives in the planning doc (`PLAN.md` / `DECISIONS.md` under `~/Downloads/oncallpilot/`); entries are promoted into this file as each phase is built.

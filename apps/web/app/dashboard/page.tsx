@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
-import { fetchRecent, fetchSummary, Summary, Trace } from "../../lib/metrics";
+import { BASE, fetchRecent, fetchSummary, Summary, Trace } from "../../lib/metrics";
 
 // model tiers are ordinal (haiku < sonnet < opus by cost/capability) -> a single
 // teal ramp, light->dark, not a categorical palette.
@@ -53,7 +53,7 @@ export default function Dashboard() {
 
       {error && (
         <div className="rounded-md border border-p1/40 bg-p1/10 px-3 py-2 text-sm text-p1">
-          {error} — is the agent running on :8000?
+          {error} — is the agent reachable at {BASE}?
         </div>
       )}
 

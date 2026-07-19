@@ -17,7 +17,6 @@ class MockBackend:
     def __init__(self) -> None:
         self._ci: dict = json.loads((_SEED / "ci_pipelines.json").read_text())
         self._alerts: list = json.loads((_SEED / "alerts.json").read_text())
-        self._projects: dict = json.loads((_SEED / "jira_projects.json").read_text())
         self._tickets: dict[str, dict] = {}  # idempotency_key -> ticket
         self._counter = 4200
         self._lock = threading.Lock()
@@ -58,6 +57,7 @@ class MockBackend:
                 "url": f"https://jira.example.com/browse/{key}",
                 "project_key": project_key,
                 "summary": summary,
+                "description": description,
                 "issue_type": issue_type,
                 "priority": priority,
                 "labels": labels,
@@ -65,9 +65,6 @@ class MockBackend:
             }
             self._tickets[idempotency_key] = ticket
             return ticket
-
-    def known_project(self, project_key: str) -> bool:
-        return project_key in self._projects
 
 
 _backend: MockBackend | None = None

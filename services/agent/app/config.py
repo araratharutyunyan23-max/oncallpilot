@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     chat_max_tokens: int = 4096
     system_prompt: str = DEFAULT_SYSTEM_PROMPT
     cache_ttl: str = "1h"  # ephemeral cache ttl for the frozen system prefix
+    # pinned faithfulness-judge model — deliberately decoupled from chat_model so
+    # the eval baseline is reproducible; keep it at the value the baseline was
+    # measured with (see DECISIONS.md). Not the answer-generating tier by design.
+    judge_model: str = "claude-sonnet-5"
 
     # --- HTTP / CORS ---
     cors_allow_origins: str = "http://localhost:3000"
@@ -49,7 +53,6 @@ class Settings(BaseSettings):
     rate_limit_per_min: int = 30
     rate_limit_burst: int = 10
     daily_spend_cap_usd: float = 5.0
-    max_request_usd: float = 0.50
 
     # --- Retrieval (Phase 1) ---
     database_url: str = "postgresql://oncallpilot:oncallpilot@localhost:55432/oncallpilot"

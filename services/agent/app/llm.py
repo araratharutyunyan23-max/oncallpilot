@@ -74,14 +74,7 @@ async def stream_chat(
                     got_token = True
                     yield ("token", text)
                 final = await stream.get_final_message()
-                u = final.usage
-                usage = Usage(
-                    input_tokens=getattr(u, "input_tokens", 0) or 0,
-                    output_tokens=getattr(u, "output_tokens", 0) or 0,
-                    cache_read_input_tokens=getattr(u, "cache_read_input_tokens", 0) or 0,
-                    cache_creation_input_tokens=getattr(u, "cache_creation_input_tokens", 0)
-                    or 0,
-                )
+                usage = Usage.from_response(final.usage)
                 cost = cost_usd(settings.chat_model, usage, settings.cache_ttl)
                 yield (
                     "usage",
@@ -99,6 +92,7 @@ async def stream_chat(
             if got_token or attempt >= max_retries:
                 log.warning("stream failed, no retry: %s", type(e).__name__)
                 yield ("error", f"upstream unavailable ({type(e).__name__})")
+                yield ("done", None)  # terminate on `done` like the agent endpoints
                 return
             attempt += 1
             log.info("retry %d after %s", attempt, type(e).__name__)
@@ -106,4 +100,5 @@ async def stream_chat(
         except anthropic.APIStatusError as e:
             log.warning("api error: %s", e)
             yield ("error", f"api error {getattr(e, 'status_code', '?')}")
+            yield ("done", None)
             return

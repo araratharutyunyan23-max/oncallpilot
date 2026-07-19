@@ -1,5 +1,0 @@
-{
-  "SRE": {"name": "Site Reliability", "lead": "sre-oncall"},
-  "PLATFORM": {"name": "Platform", "lead": "platform-oncall"},
-  "NETOPS": {"name": "Network Operations", "lead": "netops-oncall"}
-}

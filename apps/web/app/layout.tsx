@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "OncallPilot",
-  description: "SRE / on-call assistant — RAG + agent (Phase 0)",
+  description: "SRE / on-call assistant — RAG + LangGraph agent",
 };
 
 export default function RootLayout({

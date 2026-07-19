@@ -121,8 +121,10 @@ def chunk_markdown(
             ordn += 1
             continue
 
-        # section too big — pack paragraphs, emitting BEFORE a window would exceed
-        # the budget so no emitted chunk is over max_tokens (overlap included).
+        # section too big — pack paragraphs, emitting BEFORE a multi-paragraph
+        # window would exceed the budget. NOTE: a single paragraph larger than
+        # max_tokens is still emitted whole (as its own chunk) and relies on the
+        # embedder truncating it, so such a chunk can exceed max_tokens.
         paras: list[_Para] = []
         idx = 0
         for part in _PARA.split(trimmed):

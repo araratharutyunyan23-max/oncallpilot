@@ -111,12 +111,23 @@ async def main() -> int:
     _report(metrics, detail, with_key)
 
     if args.update_baseline:
-        BASELINE.write_text(json.dumps(metrics, indent=2, sort_keys=True) + "\n")
+        # merge, never overwrite: a keyless reseed only carries retrieval.* and
+        # must not erase the answer.*/tasks.* ratchet seeded from a keyed run
+        merged: dict = json.loads(BASELINE.read_text()) if BASELINE.exists() else {}
+        merged.update(metrics)
+        BASELINE.write_text(json.dumps(merged, indent=2, sort_keys=True) + "\n")
+        if not with_key:
+            print("note: no API key — preserved existing answer/task baseline entries")
         print(f"\nbaseline written -> {BASELINE}")
         return 0
 
     baseline: dict = json.loads(BASELINE.read_text()) if BASELINE.exists() else {}
     failures = gate(metrics, baseline)
+    if with_key:
+        # both safety-bearing tiers ran; a safety metric that vanished because its
+        # cases were deleted must fail loudly, not silently drop out of the gate
+        for m in sorted(SAFETY - metrics.keys()):
+            failures.append(f"SAFETY {m} has no evaluated cases")
     print("\nGATE: " + ("PASS ✓" if not failures else "FAIL ✗"))
     for f in failures:
         print(f"  - {f}")

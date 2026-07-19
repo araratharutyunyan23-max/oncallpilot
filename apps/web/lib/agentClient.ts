@@ -81,17 +81,30 @@ async function streamSSE(url: string, body: unknown, h: Handlers, signal?: Abort
   const reader = res.body.getReader();
   const dec = new TextDecoder();
   let buf = "";
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buf += dec.decode(value, { stream: true }).replace(/\r\n/g, "\n");
-    let idx: number;
-    while ((idx = buf.indexOf("\n\n")) >= 0) {
-      dispatch(buf.slice(0, idx), h);
-      buf = buf.slice(idx + 2);
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+      let idx: number;
+      while ((idx = buf.indexOf("\n\n")) >= 0) {
+        dispatch(buf.slice(0, idx), h);
+        buf = buf.slice(idx + 2);
+      }
     }
+    if (buf.trim()) dispatch(buf, h);
+  } catch (e) {
+    // a mid-stream drop rejects reader.read(); surface it and still finish so
+    // the UI never stays wedged in a busy state waiting for a `done` that
+    // won't come. AbortError (deliberate cancel) is silent.
+    if (!(e instanceof DOMException && e.name === "AbortError")) {
+      h.onError?.(e instanceof Error ? e.message : "stream error");
+    }
+  } finally {
+    // guarantees onDone (e.g. setBusy(false)) runs however the stream ends —
+    // including a server close with no terminal `done` event
+    h.onDone?.();
   }
-  if (buf.trim()) dispatch(buf, h);
 }
 
 function dispatch(frame: string, h: Handlers): void {

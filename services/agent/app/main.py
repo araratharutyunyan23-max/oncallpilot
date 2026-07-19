@@ -10,7 +10,7 @@ import json
 import logging
 import uuid
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -87,7 +87,7 @@ async def readyz() -> JSONResponse | dict[str, str]:
 
 
 @app.post("/chat")
-async def chat(req: ChatRequest, request: Request, _: None = Depends(enforce_edge)):
+async def chat(req: ChatRequest, _: None = Depends(enforce_edge)):
     s = get_settings()
     if not s.anthropic_api_key:
         return JSONResponse({"error": "ANTHROPIC_API_KEY not configured"}, status_code=503)
@@ -113,7 +113,7 @@ async def chat(req: ChatRequest, request: Request, _: None = Depends(enforce_edg
 
 
 @app.post("/rag")
-async def rag(req: ChatRequest, request: Request, _: None = Depends(enforce_edge)):
+async def rag(req: ChatRequest, _: None = Depends(enforce_edge)):
     """RAG: retrieve from the corpus, answer grounded in it with native citations."""
     s = get_settings()
     if not s.anthropic_api_key:
@@ -156,7 +156,7 @@ async def rag(req: ChatRequest, request: Request, _: None = Depends(enforce_edge
 
 
 @app.post("/agent")
-async def agent(req: ChatRequest, request: Request, _: None = Depends(enforce_edge)):
+async def agent(req: ChatRequest, _: None = Depends(enforce_edge)):
     """Agentic flow: retrieve -> decide -> act (MCP tools), pausing for human
     approval before any destructive action. Returns a conversation_id to /resume."""
     s = get_settings()
@@ -193,7 +193,7 @@ async def agent(req: ChatRequest, request: Request, _: None = Depends(enforce_ed
 
 @app.post("/agent/{conversation_id}/resume")
 async def agent_resume(
-    conversation_id: str, req: ResumeRequest, request: Request, _: None = Depends(enforce_edge)
+    conversation_id: str, req: ResumeRequest, _: None = Depends(enforce_edge)
 ):
     """Resume a paused agent run with the operator's approve/deny decisions."""
     s = get_settings()

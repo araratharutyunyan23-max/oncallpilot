@@ -28,6 +28,16 @@ class Usage:
     cache_read_input_tokens: int = 0
     cache_creation_input_tokens: int = 0
 
+    @classmethod
+    def from_response(cls, u: object) -> "Usage":
+        """Defensive extraction from a raw Anthropic `response.usage` object."""
+        return cls(
+            input_tokens=getattr(u, "input_tokens", 0) or 0,
+            output_tokens=getattr(u, "output_tokens", 0) or 0,
+            cache_read_input_tokens=getattr(u, "cache_read_input_tokens", 0) or 0,
+            cache_creation_input_tokens=getattr(u, "cache_creation_input_tokens", 0) or 0,
+        )
+
 
 def cost_usd(model: str, usage: Usage, cache_ttl: str = "1h") -> float:
     p_in, p_out = PRICING.get(model, (0.0, 0.0))

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { type ReactNode, useCallback, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import {
   Citation,
   Handlers,
@@ -33,6 +33,11 @@ export default function Console() {
   const [pending, setPending] = useState<Pending | null>(null);
   const [usage, setUsage] = useState<Usage | null>(null);
   const cid = useRef<string | null>(null);
+  const ac = useRef<AbortController | null>(null);
+
+  // abort any in-flight stream when the console unmounts (e.g. navigating to
+  // /dashboard mid-run) so the fetch/reader doesn't leak until the server closes
+  useEffect(() => () => ac.current?.abort(), []);
 
   const handlers: Handlers = {
     onMeta: (c) => (cid.current = c),
@@ -63,8 +68,11 @@ export default function Console() {
     setUsage(null);
     cid.current = null;
     setInput("");
-    if (mode === "ask") await streamRag(q, handlers);
-    else await streamAgent(q, handlers);
+    ac.current?.abort();
+    const c = new AbortController();
+    ac.current = c;
+    if (mode === "ask") await streamRag(q, handlers, c.signal);
+    else await streamAgent(q, handlers, c.signal);
   }, [input, busy, mode]);
 
   const decide = useCallback(
@@ -74,7 +82,10 @@ export default function Console() {
       for (const a of pending.pending_actions) approvals[a.tool_call_id] = decision;
       setPending(null);
       setBusy(true);
-      await resumeAgent(cid.current, approvals, handlers);
+      ac.current?.abort();
+      const c = new AbortController();
+      ac.current = c;
+      await resumeAgent(cid.current, approvals, handlers, c.signal);
     },
     [pending],
   );
@@ -85,6 +96,7 @@ export default function Console() {
 
       <div className="flex items-stretch gap-2">
         <input
+          aria-label="Incident or question"
           className="min-w-0 flex-1 rounded-md border border-border bg-surface2 px-3 py-2.5 text-sm outline-none placeholder:text-faint focus:border-accent/60"
           placeholder={mode === "act" ? "Describe an incident, or ask to act…" : "Ask about a runbook, alert, or incident…"}
           value={input}
@@ -150,6 +162,7 @@ function Header({ mode, setMode, disabled }: { mode: Mode; setMode: (m: Mode) =>
             <button
               key={m}
               disabled={disabled}
+              aria-pressed={mode === m}
               onClick={() => setMode(m)}
               className={`rounded px-2.5 py-1 ${mode === m ? "bg-surface text-fg" : "text-muted"} disabled:opacity-50`}
             >
@@ -202,10 +215,21 @@ function Trace({ steps }: { steps: Step[] }) {
 }
 
 function Approval({ pending, busy, onDecide }: { pending: Pending; busy: boolean; onDecide: (d: "approved" | "denied") => void }) {
+  const approveRef = useRef<HTMLButtonElement>(null);
+  // the component only mounts when an approval is pending, so focus on mount
+  // moves the operator straight to the decision without a blind tab hunt
+  useEffect(() => {
+    approveRef.current?.focus();
+  }, []);
   return (
-    <section className="rounded-md border border-p2/50 bg-p2/5">
+    <section
+      role="alertdialog"
+      aria-modal="true"
+      aria-label="Approval required — destructive action"
+      className="rounded-md border border-p2/50 bg-p2/5"
+    >
       <div className="flex items-center gap-2 border-b border-p2/30 px-3 py-2 text-xs uppercase tracking-wider text-p2">
-        <span>⏸ approval required — destructive action</span>
+        <span><span aria-hidden="true">⏸</span> approval required — destructive action</span>
       </div>
       <div className="space-y-2 px-3 py-3">
         {pending.pending_actions.map((a) => (
@@ -219,6 +243,7 @@ function Approval({ pending, busy, onDecide }: { pending: Pending; busy: boolean
         ))}
         <div className="flex gap-2 pt-1">
           <button
+            ref={approveRef}
             className="rounded-md bg-ok px-3 py-1.5 text-sm font-medium text-base disabled:opacity-40"
             onClick={() => onDecide("approved")}
             disabled={busy}

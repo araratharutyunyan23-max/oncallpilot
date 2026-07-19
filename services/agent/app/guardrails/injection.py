@@ -33,4 +33,7 @@ def classify(text: str) -> tuple[bool, str]:
 
 
 def datamark(text: str, kind: str = "tool_output") -> str:
+    # de-fang a forged closing delimiter so hostile tool output can't break out
+    # of the data channel back into instruction context
+    text = text.replace(f"</untrusted_{kind}>", f"[/untrusted_{kind}]")
     return f"<untrusted_{kind}>\n{text}\n</untrusted_{kind}>"

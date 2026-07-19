@@ -43,6 +43,7 @@ async def _drive(graph, inp, cid: str) -> AsyncIterator[tuple[str, object]]:
         "cost_usd": round(vals.get("cost_usd", 0.0), 6),
         "tokens_in": vals.get("tokens_in", 0),
         "tokens_out": vals.get("tokens_out", 0),
+        "cache_read": vals.get("cache_read", 0),
     }
     if snap.next:  # paused before human_approval, awaiting operator decision
         yield ("pending_action", {"conversation_id": cid, **pending_payload(vals)})
