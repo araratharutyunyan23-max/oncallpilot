@@ -23,3 +23,6 @@ docs/corpus/**/.embeddings/
 # os / editor
 .DS_Store
 *.swp
+
+# ts build cache
+*.tsbuildinfo
