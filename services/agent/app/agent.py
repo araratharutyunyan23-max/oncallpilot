@@ -13,6 +13,7 @@ from collections.abc import AsyncIterator
 
 from .config import get_settings
 from .graph.build import get_graph, pending_payload
+from .guardrails.pii import scrub_output
 
 log = logging.getLogger("oncallpilot.agent")
 
@@ -46,7 +47,10 @@ async def _drive(graph, inp, cid: str) -> AsyncIterator[tuple[str, object]]:
     if snap.next:  # paused before human_approval, awaiting operator decision
         yield ("pending_action", {"conversation_id": cid, **pending_payload(vals)})
     else:
-        yield ("answer", {"text": vals.get("final_answer"), "sources": vals.get("sources", [])})
+        text = vals.get("final_answer")
+        if isinstance(text, str):
+            text, _ = scrub_output(text)  # never leak secrets in the final answer
+        yield ("answer", {"text": text, "sources": vals.get("sources", [])})
     yield ("usage", usage)  # both paths; billed as a per-thread delta (see charge_thread)
     yield ("done", None)
 

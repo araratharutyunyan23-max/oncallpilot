@@ -19,6 +19,7 @@ from sse_starlette.sse import EventSourceResponse
 from .agent import resume_agent, run_agent
 from .config import get_settings
 from .edge_guard import enforce_edge, get_guard
+from .guardrails import injection
 from .llm import stream_chat
 from .obs.recorder import Telemetry, get_recorder
 from .rag import stream_rag_answer
@@ -43,6 +44,16 @@ class ChatRequest(BaseModel):
 
 class ResumeRequest(BaseModel):
     approvals: dict[str, str] = Field(default_factory=dict)  # {tool_call_id: "approved"|"denied"}
+
+
+_BLOCKED_TEXT = "Blocked by the input guardrail — possible prompt injection. Please rephrase."
+
+
+def _blocked_frames(reason: str):
+    step = json.dumps({"node": "input_guard", "result": "blocked", "reason": reason})
+    answer = json.dumps({"text": _BLOCKED_TEXT, "sources": []})
+    yield {"event": "step", "data": step}
+    yield {"event": "answer", "data": answer}
 
 
 def _agent_sse(kind: str, payload: object, guard) -> dict:
@@ -111,6 +122,13 @@ async def rag(req: ChatRequest, request: Request, _: None = Depends(enforce_edge
     tel = Telemetry("rag")
 
     async def event_gen():
+        blocked, reason = injection.classify(req.query)
+        if blocked:
+            for frame in _blocked_frames(reason):
+                yield frame
+            tel.finalize()
+            yield {"event": "done", "data": "{}"}
+            return
         try:
             async for kind, payload in stream_rag_answer(req.query, s):
                 tel.observe(kind, payload)
@@ -152,6 +170,13 @@ async def agent(req: ChatRequest, request: Request, _: None = Depends(enforce_ed
 
     async def event_gen():
         yield {"event": "meta", "data": json.dumps({"conversation_id": cid})}
+        blocked, reason = injection.classify(req.query)
+        if blocked:
+            for frame in _blocked_frames(reason):
+                yield frame
+            tel.finalize()
+            yield {"event": "done", "data": "{}"}
+            return
         try:
             async for kind, payload in run_agent(req.query, cid):
                 tel.observe(kind, payload)

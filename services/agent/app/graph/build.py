@@ -17,6 +17,8 @@ from langgraph.graph import END, START, StateGraph
 
 from ..config import get_settings
 from ..cost import Usage, cost_usd
+from ..guardrails.injection import datamark
+from ..guardrails.pii import SECRET_TYPES, redact
 from ..llm import get_client
 from ..retrieval.retrieve import hybrid_search
 from ..tools.mcp_client import call_tool, list_tool_defs
@@ -170,7 +172,12 @@ async def _tool_exec(state: AgentState) -> dict:
             out = await call_tool(call["name"], args)
         except Exception as e:  # noqa: BLE001 — surface tool failure back to the model
             out = json.dumps({"error": str(e)[:200]})
-        results.append({"type": "tool_result", "tool_use_id": call["id"], "content": out})
+        # tool output is untrusted: scrub secrets, then datamark so the model
+        # treats it as data, not instructions (indirect-injection defense).
+        out, _ = redact(out, SECRET_TYPES)
+        results.append(
+            {"type": "tool_result", "tool_use_id": call["id"], "content": datamark(out)}
+        )
         trace.append({"node": "tool_exec", "tool": call["name"], "result": "executed"})
 
     return {

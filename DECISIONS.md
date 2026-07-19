@@ -102,17 +102,21 @@ No product auth, billing, or multi-tenancy; no fine-tuning; the corpus stays nar
 
 ---
 
-## OWASP LLM Top-10 mapping (skeleton — filled in as controls land)
+## OWASP LLM Top-10 mapping
 
-| OWASP | Control | Phase |
-|-------|---------|-------|
-| LLM01 Prompt Injection | jailbreak classifier + document-block channel separation + indirect-scan (docs + tool output) + operator channel | P4 (input guard seed) |
-| LLM02 Insecure Output Handling | citation integrity, leak scan, safe markdown render, no `eval` | P4 |
-| LLM04 Model DoS / Unbounded consumption | **edge rate-limit + daily spend cap** (P0) + per-request dollar kill-switch + task budgets | **P0** / P4 |
-| LLM06 Sensitive Info Disclosure | Presidio redaction (in/docs/tool/out) + span-mask before Langfuse | P4 |
-| LLM07 Insecure Plugin/Tool Design | `strict:true` schemas + tool allowlist + scoped creds + MCP trust boundary | P2 |
-| LLM08 Excessive Agency | human-in-the-loop on destructive actions + allowlist + budgets | P2 |
-| LLM09 Overreliance | native citations + RAGAS faithfulness gate + grounded refusal | P1 / P3 |
-| LLM10 Unbounded / Model Theft | hosted model, key via SDK env, no key echo in traces | P0 / P4 |
+Two kinds of control: **structural** (code-enforced, holds regardless of any classifier) and **detective** (heuristic/regex, best-effort, upgradeable). Status: ✓ shipped · ~ partial.
+
+| OWASP | Control (structural in **bold**) | Status |
+|-------|-----------------------------------|--------|
+| LLM01 Prompt Injection | **retrieved docs as document content blocks** + **datamarked (`<untrusted_*>`) tool output** + heuristic `injection.classify` input block (haiku-classifier upgrade) | ✓ (P2 separation + P4 guard) |
+| LLM02 Insecure Output Handling | `scrub_output` secret-scrub of the model's answer + **safe React render (no `dangerouslySetInnerHTML`, no `eval`)** · citation-integrity | ✓ scrub/render · ~ citation-integrity |
+| LLM04 Model DoS / Unbounded | **edge rate-limit + daily spend cap + per-thread cumulative-delta billing** (single Opus bill can't be run up anonymously) | ✓ (P0/P2) |
+| LLM06 Sensitive Info Disclosure | regex PII/secret **redaction of tool output before the model sees it** + output scrub (Presidio upgrade) | ✓ P4 (regex) |
+| LLM07 Insecure Plugin/Tool | **`strict:true` tool schemas + tool allowlist (`is_destructive`) + MCP as a separate process/trust boundary** | ✓ P2 |
+| LLM08 Excessive Agency | **human-in-the-loop `interrupt_before` on every destructive call + `tool_call_id` idempotency + agent-side gating (not the tool server's word)** | ✓ P2 |
+| LLM09 Overreliance | **native Anthropic citations** + faithfulness **eval gate** (P3) + **grounded refusal** on out-of-corpus | ✓ (P1/P3) |
+| LLM10 Unbounded consumption / model theft | hosted model, key via SDK env (**never echoed in traces/logs**), spend caps | ✓ (P0/P4) |
+
+The prompt-injection and excessive-agency defenses are deliberately **structural**: the HITL gate and document-block separation hold even if `injection.classify` misses — the classifier is defense-in-depth, not the load-bearing control.
 
 The full 42-decision design log for all phases lives in the planning doc (`PLAN.md` / `DECISIONS.md` under `~/Downloads/oncallpilot/`); entries are promoted into this file as each phase is built.
