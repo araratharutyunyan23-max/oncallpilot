@@ -28,6 +28,14 @@ Screenshots below are the real UI driven end-to-end against live Claude (`claude
 
 ![Act flow — human-in-the-loop approval gate](docs/media/03-approval-gate.png)
 
+**…and after you approve, it executes and reports back.** The trace closes the loop — `approval recorded` → `create_jira_ticket executed` → a grounded summary of what was filed and the runbook's recommended next step.
+
+![Act flow — completed after approval, ticket created](docs/media/04-act-complete.png)
+
+**Evals are a blocking CI gate, not a notebook.** Retrieval recall, an LLM faithfulness judge, and zero-tolerance safety checks (confirmation gate, no forbidden tool executed) run against golden datasets on a baseline ratchet — a PR that regresses quality goes red. Note the visible per-case `FAIL`: the suite really does catch a known blemish (an out-of-corpus refusal that still named outside specifics) while the gate itself passes. That's the point of evals.
+
+![Evals as a blocking CI gate — make eval output, GATE: PASS](docs/media/06-evals-gate.png)
+
 **Observability — per-request cost / latency / tokens, live.** Cache-hit rate, model mix, and a rolling log of every request (including paused agent runs).
 
 ![Observability dashboard — cost, latency, tokens per request](docs/media/05-dashboard.png)
