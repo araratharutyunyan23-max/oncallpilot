@@ -17,6 +17,9 @@ dependencies = [
     "torch>=2.2",
     "transformers>=4.44",
     "pyyaml>=6.0",
+    # --- Phase 2: agent + tools ---
+    "langgraph>=0.2",
+    "mcp>=1.2",
 ]
 
 [dependency-groups]

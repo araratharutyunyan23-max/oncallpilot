@@ -64,6 +64,17 @@ class Settings(BaseSettings):
     rrf_k: int = 60
     hnsw_ef_search: int = 80
 
+    # --- Agent (Phase 2) ---
+    mcp_url: str = "http://localhost:9000/mcp"
+    agent_model: str = "claude-sonnet-5"  # prod tier is opus-4-8; sonnet keeps demo cheap
+    agent_effort: str = "high"
+    max_agent_steps: int = 6
+    mcp_destructive_tools: str = "create_jira_ticket"  # local source of truth (not MCP annotation)
+
+    @property
+    def destructive_tools(self) -> set[str]:
+        return {t.strip() for t in self.mcp_destructive_tools.split(",") if t.strip()}
+
     @property
     def cors_origins(self) -> list[str]:
         return [o.strip() for o in self.cors_allow_origins.split(",") if o.strip()]

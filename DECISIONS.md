@@ -83,6 +83,16 @@ No product auth, billing, or multi-tenancy; no fine-tuning; the corpus stays nar
 
 ---
 
+## [P2] Human-in-the-loop: static interrupt_before + MemorySaver (first cut)
+- **Context:** Destructive tools (`create_jira_ticket`) must pause for human approval *before* executing. The agent is a LangGraph `StateGraph`, and the pause must survive the `/agent` → `/resume` HTTP boundary.
+- **Decision:** Route destructive actions to a `human_approval` node compiled with **static `interrupt_before`**; the operator's approve/deny is injected into state via `update_state` before the run is resumed. Checkpointer is an in-process **MemorySaver**.
+- **Rationale (measured 2026-07-19):** LangGraph 1.2.9's *dynamic* `interrupt()` raises `Called get_config outside of a runnable context` inside async nodes — reproduced in isolation across `ainvoke` / `astream` / both stream modes. Its run-config contextvar isn't set for async node execution. Static `interrupt_before` uses a different pause mechanism that works. MemorySaver keeps the pending action durable across the two HTTP requests within one worker.
+- **Tradeoffs:** MemorySaver is not durable across restarts or multiple workers (a pending approval is lost if the process dies); the decision travels via `update_state` rather than as the interrupt's return value.
+- **Upgrade path:** **PostgresSaver** (`langgraph-checkpoint-postgres`) for cross-restart/worker durability; revisit dynamic `interrupt()` when the langgraph contextvar issue is fixed. Idempotency is independent of the checkpointer: `tool_call_id` is passed as the MCP `idempotency_key`, so even a duplicated execute never creates a second ticket.
+- **Alternatives considered:** Anthropic MCP connector (executes tool calls server-side inside one model turn → can't gate before execution; also incompatible with strict tools) — rejected per the MCP-client decision above.
+
+---
+
 ## OWASP LLM Top-10 mapping (skeleton — filled in as controls land)
 
 | OWASP | Control | Phase |

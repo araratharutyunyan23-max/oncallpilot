@@ -8,6 +8,7 @@ Endpoints:
 
 import json
 import logging
+import uuid
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,6 +16,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
+from .agent import resume_agent, run_agent
 from .config import get_settings
 from .edge_guard import enforce_edge, get_guard
 from .llm import stream_chat
@@ -36,6 +38,22 @@ app.add_middleware(
 class ChatRequest(BaseModel):
     query: str = Field(min_length=1, max_length=8000)
     conversation_id: str | None = None
+
+
+class ResumeRequest(BaseModel):
+    approvals: dict[str, str] = Field(default_factory=dict)  # {tool_call_id: "approved"|"denied"}
+
+
+def _agent_sse(kind: str, payload: object, guard) -> dict:
+    if kind == "usage" and isinstance(payload, dict):
+        guard.add_spend(float(payload.get("cost_usd", 0.0)))
+    if kind == "error":
+        data = json.dumps({"message": payload})
+    elif kind == "done":
+        data = "{}"
+    else:
+        data = json.dumps(payload)
+    return {"event": kind, "data": data}
 
 
 @app.get("/healthz")
@@ -104,6 +122,49 @@ async def rag(req: ChatRequest, request: Request, _: None = Depends(enforce_edge
                     yield {"event": "done", "data": "{}"}
         except Exception:  # noqa: BLE001 — surface as SSE error, never 500 mid-stream
             log.exception("rag stream crashed")
+            yield {"event": "error", "data": json.dumps({"message": "internal error"})}
+
+    return EventSourceResponse(event_gen())
+
+
+@app.post("/agent")
+async def agent(req: ChatRequest, request: Request, _: None = Depends(enforce_edge)):
+    """Agentic flow: retrieve -> decide -> act (MCP tools), pausing for human
+    approval before any destructive action. Returns a conversation_id to /resume."""
+    s = get_settings()
+    if not s.anthropic_api_key:
+        return JSONResponse({"error": "ANTHROPIC_API_KEY not configured"}, status_code=503)
+    guard = get_guard()
+    cid = req.conversation_id or f"conv-{uuid.uuid4().hex[:12]}"
+
+    async def event_gen():
+        yield {"event": "meta", "data": json.dumps({"conversation_id": cid})}
+        try:
+            async for kind, payload in run_agent(req.query, cid):
+                yield _agent_sse(kind, payload, guard)
+        except Exception:  # noqa: BLE001
+            log.exception("agent endpoint crashed")
+            yield {"event": "error", "data": json.dumps({"message": "internal error"})}
+
+    return EventSourceResponse(event_gen())
+
+
+@app.post("/agent/{conversation_id}/resume")
+async def agent_resume(
+    conversation_id: str, req: ResumeRequest, request: Request, _: None = Depends(enforce_edge)
+):
+    """Resume a paused agent run with the operator's approve/deny decisions."""
+    s = get_settings()
+    if not s.anthropic_api_key:
+        return JSONResponse({"error": "ANTHROPIC_API_KEY not configured"}, status_code=503)
+    guard = get_guard()
+
+    async def event_gen():
+        try:
+            async for kind, payload in resume_agent(conversation_id, req.approvals):
+                yield _agent_sse(kind, payload, guard)
+        except Exception:  # noqa: BLE001
+            log.exception("agent resume crashed")
             yield {"event": "error", "data": json.dumps({"message": "internal error"})}
 
     return EventSourceResponse(event_gen())
